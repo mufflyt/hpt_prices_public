@@ -1,0 +1,24 @@
+.Rhistory
+.RData
+.Rproj.user/
+.DS_Store
+*.Rproj
+renv/
+tmp/
+
+# All data lives outside git. Hospital price data is large, and rates derived
+# from the Trilliant Health lake may not be redistributed (Trilliant terms of
+# service 2.3(i), 2.3(iii)). Only code, config, docs, and small synthetic test
+# fixtures are committed.
+data/
+data-raw/
+output/
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.ducklake
+*.zip
+*.part
+
+# Synthetic fixtures are the one exception.
+!tests/testthat/fixtures/**

@@ -1,0 +1,3 @@
+ccn,hospital_name,city,state,type,finding,assessable,evidence,domain,pointer_url,mrf_url,mrf_last_updated,mrf_days_since_update,cms_template_version,checked_at
+060011,DENVER HEALTH & HOSPITAL AUTHORITY,DENVER,CO,Acute Care Hospitals,compliant-observed,yes,,,,,,,,
+02013F,673rd Medical Group (Joint Base Elmendorf-Richardson),JBER,AK,Acute Care - Department of Defense,not-applicable-federal,no,,,,,,,,

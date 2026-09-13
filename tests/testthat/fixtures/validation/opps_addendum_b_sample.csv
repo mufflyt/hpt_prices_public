@@ -1,0 +1,11 @@
+,Addendum B.-- OPPS Payment by HCPCS Code for CY 2026,,,,,,,,,,,
+,CPT codes and descriptions only are copyright 2025 American Medical Association.  All Rights Reserved.  Synthetic fixture – not CMS data.,,,,,,,,,,,
+,"The existence or absence of a HCPCS code does not mean that an item or service is covered, or non-covered.",,,,,,,,,,,
+HCPCS Code,Short Descriptor,SI,APC,Relative Weight,Payment Rate,National Unadjusted Copayment, Minimum Unadjusted Copayment,IRA Coinsurance Percentage,Adjusted Beneficiary Copayment,Drug and Device Pass-Through Expiration during Calendar Year,Note,* Indicates a Change
+0001F,Heart failure composite,E1,,,,,,,,,,
+43775,Lap sleeve gastrectomy,C,,,,,,,,,,
+45378,Diagnostic colonoscopy,T,5311,10.3933,$950.10 ,.,$190.02 ,,,,,
+45380,Colonoscopy and biopsy,T,5312,13.3737,"$1,222.56 ",.,$244.52 ,,,,,
+58100,Biopsy of uterus lining,T,5411,2.2595,$206.55 ,.,$41.31 ,,,,,
+58300,Insert intrauterine device,E1,,,,,,,,,,
+88305,Tissue exam by pathologist,Q1,5671,0.5824,$53.24 ,.,$10.65 ,,,,,

@@ -1,0 +1,12 @@
+location-name: North Campus
+source-page-url: https://health.example.org/pricing
+mrf-url: https://files.health.example.org/111111111_North-Campus_standardcharges.json
+contact-name: Pricing Team
+contact-email: pricing@health.example.org
+location-name: South Campus
+source-page-url: https://health.example.org/pricing
+mrf-url: https://files.health.example.org/222222222_South-Campus_standardcharges.json
+contact-name: Pricing Team
+contact-email: pricing@health.example.org
+location-name: Rural Clinic
+mrf-url: https://files.health.example.org/333333333_Rural-Clinic_standardcharges.csv

@@ -1,0 +1,67 @@
+name: R tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install R package dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::readr
+            any::dplyr
+            any::tibble
+            any::tidyr
+            any::purrr
+            any::stringr
+            any::rlang
+            any::tidyselect
+            any::httr2
+            any::curl
+            any::openssl
+            any::jsonlite
+            any::yyjsonr
+            any::arrow
+            any::rvest
+            any::xml2
+            any::scales
+            any::ggplot2
+            any::patchwork
+            any::sandwich
+            any::duckdb
+            any::DBI
+            any::sf
+            any::maps
+            any::withr
+            any::testthat
+
+      # The Trilliant lake is DuckLake 1.0, which needs the DuckDB CLI >= 1.5;
+      # the database build and several tests run through the CLI.
+      - name: Install DuckDB CLI
+        run: |
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+
+      - name: Check tools
+        run: |
+          duckdb --version
+          jq --version
+
+      - name: Run test suite
+        run: Rscript tests/testthat.R

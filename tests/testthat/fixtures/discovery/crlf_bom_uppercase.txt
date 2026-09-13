@@ -1,0 +1,12 @@
+﻿LOCATION-NAME:   Sample Hospital   
+Source-Page-URL: https://vendor.com/hospital-price-transparency-files/links/samplehospital.aspx 
+MRF-URL :	https://vendor.com/hospital-price-transparency-files/links/101010101_Sample_standardcharges.csv
+Contact-Name: MRF Department
+CONTACT-EMAIL: MRFteam@sample.com
+
+  
+Location-Name: Sample Standalone Emergency Department
+source-page-url: https://vendor.com/hospital-price-transparency-files/links/samplehospital.aspx
+mrf-url: https://vendor.com/hospital-price-transparency-files/links/101010101_Sample_standardcharges.csv
+contact-name: MRF Department
+contact-email: MRFteam@sample.com

@@ -1,0 +1,5 @@
+compendium_hospital_id,ccn,hospital_name,hospital_street,hospital_city,hospital_state,hospital_zip,acutehosp_flag,health_sys_id,health_sys_name,health_sys_city,health_sys_state,corp_parent_id,corp_parent_name,corp_parent_type,hos_beds,hos_dsch,hos_res,hos_children,hos_majteach,hos_vmajteach,hos_teachint,hos_highdpp,hos_ucburden,hos_highuc,hos_ownership,hos_net_revenue,hos_total_revenue
+CHSP90000001,060011,Denver Health Medical Center,,,CO,,1,HSI90000001,Denver Health,,,,,,525,,,,,,,,,,,,
+CHSP90000002,060014,Presbyterian/St. Luke's Medical Center,,,CO,,1,HSI90000002,HCA Healthcare,,,,,,680,,,,,,,,,,,,
+CHSP90000003,450097,HCA Houston Healthcare Southeast,,,TX,,1,HSI90000002,HCA Healthcare,,,,,,193,,,,,,,,,,,,
+CHSP90000004,,No CCN Hospital,,,TX,,0,,,,,,,,,,,,,,,,,,,,

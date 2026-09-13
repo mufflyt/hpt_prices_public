@@ -1,0 +1,2 @@
+ccn,hospital_name,address,city,state,zip,phone,type,seeded_domain,pointer_status,remediation,reason,exa_query,resolved_domain
+010012,DEKALB REGIONAL MEDICAL CENTER,200 MED CENTER DRIVE,FORT PAYNE,AL,35968,,Acute Care Hospitals,dekalbregional.com,ok,name-match-review,,,

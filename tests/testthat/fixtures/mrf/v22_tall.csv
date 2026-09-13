@@ -1,0 +1,7 @@
+hospital_name,last_updated_on,version,hospital_location,hospital_address,license_number|CA,"To the best of its knowledge and belief, the hospital has included all applicable standard charge information in accordance with the requirements of 45 CFR 180.50, and the information encoded is true, accurate, and complete as of the date indicated."
+Legacy Community Hospital,07/01/2025,2.2.0,Legacy Community Hospital,"9 Old Rd, Fresno, CA 93701",CA-998877,true
+description,code|1,code|1|type,code|2,code|2|type,billing_class,setting,drug_unit_of_measurement,drug_type_of_measurement,modifiers,standard_charge|gross,standard_charge|discounted_cash,payer_name,plan_name,standard_charge|negotiated_dollar,standard_charge|negotiated_percentage,standard_charge|negotiated_algorithm,estimated_amount,standard_charge|min,standard_charge|max,standard_charge|methodology,additional_generic_notes
+Colonoscopy with snare,45385,CPT,,,facility,outpatient,,,,2800,1400,Humana,Humana Gold,1250,,,1250,1100,1300,fee schedule,
+Colonoscopy with snare,45385,CPT,,,professional,outpatient,,,,600,300,Humana,Humana Gold,275,,,275,250,300,fee schedule,
+Uterine procedures without CC/MCC,743,MS-DRG,,,facility,inpatient,,,,22000,11000,Kaiser,Kaiser HMO,,70,,15400,,,percent of total billed charges,
+Screening colonoscopy,G0121,HCPCS,,,facility,outpatient,,,,1800,900,Humana,Humana Gold,700,,,700,700,700,fee schedule,

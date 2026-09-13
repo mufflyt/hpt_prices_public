@@ -1,0 +1,56 @@
+concept,code,code_system,code_family,label,active_2026,anchor
+colonoscopy,45378,CPT,procedure,"Colonoscopy, diagnostic",TRUE,TRUE
+colonoscopy,45380,CPT,procedure,Colonoscopy with biopsy,TRUE,FALSE
+colonoscopy,45381,CPT,procedure,Colonoscopy with submucosal injection,TRUE,FALSE
+colonoscopy,45382,CPT,procedure,Colonoscopy with control of bleeding,TRUE,FALSE
+colonoscopy,45384,CPT,procedure,Colonoscopy with lesion removal by hot biopsy forceps,TRUE,FALSE
+colonoscopy,45385,CPT,procedure,Colonoscopy with lesion removal by snare,TRUE,FALSE
+colonoscopy,45386,CPT,procedure,Colonoscopy with balloon dilation,TRUE,FALSE
+colonoscopy,45388,CPT,procedure,Colonoscopy with ablation of lesion,TRUE,FALSE
+colonoscopy,45389,CPT,procedure,Colonoscopy with stent placement,TRUE,FALSE
+colonoscopy,45390,CPT,procedure,Colonoscopy with endoscopic mucosal resection,TRUE,FALSE
+colonoscopy,G0105,HCPCS,procedure,"Colorectal cancer screening colonoscopy, high risk",TRUE,FALSE
+colonoscopy,G0121,HCPCS,procedure,"Colorectal cancer screening colonoscopy, not high risk",TRUE,FALSE
+emb,58100,CPT,procedure,Endometrial sampling (biopsy),TRUE,TRUE
+iud_insertion,58300,CPT,procedure,Insertion of intrauterine device,TRUE,TRUE
+iud_device,J7296,HCPCS,procedure,"Levonorgestrel IUD (Kyleena), 19.5 mg",TRUE,FALSE
+iud_device,J7297,HCPCS,procedure,"Levonorgestrel IUD (Liletta), 52 mg",TRUE,FALSE
+iud_device,J7298,HCPCS,procedure,"Levonorgestrel IUD (Mirena), 52 mg",TRUE,FALSE
+iud_device,J7299,HCPCS,procedure,"Copper IUD (Miudella), new 2026-01-01",TRUE,FALSE
+iud_device,J7300,HCPCS,procedure,Copper IUD (Paragard),TRUE,FALSE
+iud_device,J7301,HCPCS,procedure,"Levonorgestrel IUD (Skyla), 13.5 mg",TRUE,FALSE
+vaginal_hysterectomy,58260,CPT,procedure,"Vaginal hysterectomy, uterus 250 g or less",TRUE,TRUE
+vaginal_hysterectomy,58262,CPT,procedure,"Vaginal hysterectomy, 250 g or less, with removal of tube(s) and/or ovary(s)",TRUE,FALSE
+vaginal_hysterectomy,58263,CPT,procedure,"Vaginal hysterectomy, 250 g or less, with removal of tube(s)/ovary(s) and enterocele repair",TRUE,FALSE
+vaginal_hysterectomy,58267,CPT,procedure,"Vaginal hysterectomy, 250 g or less, with colpo-urethrocystopexy",TRUE,FALSE
+vaginal_hysterectomy,58270,CPT,procedure,"Vaginal hysterectomy, 250 g or less, with enterocele repair",TRUE,FALSE
+vaginal_hysterectomy,58275,CPT,procedure,Vaginal hysterectomy with total or partial vaginectomy,TRUE,FALSE
+vaginal_hysterectomy,58280,CPT,procedure,Vaginal hysterectomy with total or partial vaginectomy and enterocele repair,TRUE,FALSE
+vaginal_hysterectomy,58285,CPT,procedure,"Vaginal hysterectomy, radical",TRUE,FALSE
+vaginal_hysterectomy,58290,CPT,procedure,"Vaginal hysterectomy, uterus greater than 250 g",TRUE,FALSE
+vaginal_hysterectomy,58291,CPT,procedure,"Vaginal hysterectomy, over 250 g, with removal of tube(s) and/or ovary(s)",TRUE,FALSE
+vaginal_hysterectomy,58292,CPT,procedure,"Vaginal hysterectomy, over 250 g, with removal of tube(s)/ovary(s) and enterocele repair",TRUE,FALSE
+vaginal_hysterectomy,58293,CPT,procedure,"Vaginal hysterectomy, over 250 g, with colpo-urethrocystopexy (deleted; absent from CMS PFS RVU26C)",FALSE,FALSE
+vaginal_hysterectomy,58294,CPT,procedure,"Vaginal hysterectomy, over 250 g, with enterocele repair",TRUE,FALSE
+lavh,58550,CPT,procedure,"Laparoscopy-assisted vaginal hysterectomy, uterus 250 g or less",TRUE,FALSE
+lavh,58552,CPT,procedure,"Laparoscopy-assisted vaginal hysterectomy, 250 g or less, with removal of tube(s)/ovary(s)",TRUE,FALSE
+lavh,58553,CPT,procedure,"Laparoscopy-assisted vaginal hysterectomy, uterus greater than 250 g",TRUE,FALSE
+lavh,58554,CPT,procedure,"Laparoscopy-assisted vaginal hysterectomy, over 250 g, with removal of tube(s)/ovary(s)",TRUE,FALSE
+drg_uterine_nonmalignant,742,MS-DRG,ms_drg,Uterine and adnexa procedures for non-malignancy with CC/MCC,TRUE,FALSE
+drg_uterine_nonmalignant,743,MS-DRG,ms_drg,Uterine and adnexa procedures for non-malignancy without CC/MCC,TRUE,FALSE
+bariatric_surgery,43644,CPT,procedure,"Laparoscopic gastric bypass, Roux-en-Y limb 150 cm or less",TRUE,TRUE
+bariatric_surgery,43645,CPT,procedure,Laparoscopic gastric bypass with small intestine reconstruction,TRUE,FALSE
+bariatric_surgery,43770,CPT,procedure,Laparoscopic adjustable gastric band placement,TRUE,FALSE
+bariatric_surgery,43775,CPT,procedure,Laparoscopic sleeve gastrectomy,TRUE,TRUE
+bariatric_surgery,43842,CPT,procedure,Open vertical-banded gastroplasty,TRUE,FALSE
+bariatric_surgery,43843,CPT,procedure,Open gastric restrictive procedure other than vertical-banded gastroplasty,TRUE,FALSE
+bariatric_surgery,43845,CPT,procedure,Open biliopancreatic diversion with duodenal switch,TRUE,FALSE
+bariatric_surgery,43846,CPT,procedure,"Open gastric bypass, Roux-en-Y limb 150 cm or less",TRUE,FALSE
+bariatric_surgery,43847,CPT,procedure,Open gastric bypass with small intestine reconstruction,TRUE,FALSE
+drg_bariatric,619,MS-DRG,ms_drg,O.R. procedures for obesity with MCC,TRUE,FALSE
+drg_bariatric,620,MS-DRG,ms_drg,O.R. procedures for obesity with CC,TRUE,FALSE
+drg_bariatric,621,MS-DRG,ms_drg,O.R. procedures for obesity without CC/MCC,TRUE,FALSE
+surgical_pathology,88305,CPT,procedure,"Level IV surgical pathology, gross and microscopic examination",TRUE,TRUE
+dc,58120,CPT,procedure,"Dilation and curettage, diagnostic and/or therapeutic (nonobstetrical)",TRUE,TRUE
+hysteroscopy_sampling,58558,CPT,procedure,"Hysteroscopy with sampling (biopsy) of endometrium and/or polypectomy",TRUE,TRUE
+office_visit_em,99213,CPT,procedure,"Office or other outpatient visit, established patient, low medical decision making",TRUE,FALSE

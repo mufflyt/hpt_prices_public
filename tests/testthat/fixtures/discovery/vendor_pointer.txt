@@ -1,0 +1,11 @@
+location-name: Mountain View Hospital
+source-page-url: https://www.mvhospital.org/price-transparency
+mrf-url: https://apps.pricevendor.com/mrf/555555555_Mountain-View-Hospital_standardcharges.json
+contact-name: Revenue Cycle
+contact-email: revenue@mvhospital.org
+
+location-name: Valley Hospital
+source-page-url: https://www.mvhospital.org/price-transparency
+mrf-url: https://mrfstore.blob.core.windows.net/files/666666666_Valley-Hospital_standardcharges.csv
+contact-name: Revenue Cycle
+contact-email: revenue@mvhospital.org

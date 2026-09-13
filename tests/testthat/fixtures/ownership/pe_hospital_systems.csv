@@ -1,0 +1,6 @@
+system_id,system_name,owner,owner_type,classification,ambiguity,acquired,status_2026_07,hospital_types,owner_pattern,chsp_name,include_ccns,exclude_ccns,source_url,source_publisher,source_date,source_quote,source2_url,source2_publisher,source2_date,source2_quote,notes,verified_on
+sys_a,Acme Health,Acme Health Partners LP,buyout_pe,strict,,2020-01-01,owned,acute,^ACME HEALTH PARTNERS,Acme,,,https://example.org/acme,Example News,2020-01-02,Acme Health Partners completed its acquisition,,,,,,2026-09-13
+sys_b,Delta Surgical,Smallstake family office,family_office,ambiguous,family_office,2021-01-01,owned,surgical,^SMALLSTAKE,,,,https://example.org/delta,Example News,2021-01-02,Smallstake bought Delta,,,,,,2026-09-13
+sys_c,Epsilon creditors,Acme Capital Partners Fund II,creditor_owned,ambiguous,creditor,2022-01-01,owned,acute,^ACME CAPITAL PARTNERS FUND,,60060;060011,,https://example.org/epsilon,Example Court,2022-01-02,creditors took control,,,,,,2026-09-13
+sys_d,Beta Hospitals,Summit PE Holdings,buyout_pe,strict,,2019-01-01,sold Beta 2026-01-01,acute,^SUMMIT PE HOLDINGS,,,60024,https://example.org/beta,Example News,2026-01-02,Beta was sold,,,,,,2026-09-13
+sys_e,Public asset managers,Vanguard,public_company,exclude,not_pe,,,,^VANGUARD,,,,,,,,,,,,not PE,2026-09-13

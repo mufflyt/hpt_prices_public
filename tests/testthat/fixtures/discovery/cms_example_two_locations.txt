@@ -1,0 +1,11 @@
+location-name: Example Hospital East
+source-page-url: https://example.com/price-transparency
+mrf-url: https://example.com/price-transparency/123456789_Example-Hospital-East_standardcharges.csv
+contact-name: Jon Snow
+contact-email: jsnow@example.com
+
+location-name: Example Hospital West
+source-page-url: https://example.com/price-transparency
+mrf-url: https://example.com/price-transparency/987654321_Example-Hospital-West_standardcharges.json
+contact-name: Jane Doe
+contact-email: jdoe@example2.com
