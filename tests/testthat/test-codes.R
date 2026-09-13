@@ -66,3 +66,14 @@ testthat::test_that("interleave_by_host round-robins hosts and is a permutation"
   testthat::expect_equal(url_host(urls[order_idx]), base::c("a.org", "b.org", "c.org", "a.org", "b.org", "a.org"))
   testthat::expect_equal(base::order(order_idx)[order_idx], base::seq_along(urls))
 })
+
+testthat::test_that("HPT_DATA_DIR overrides the drive default without checking the drive", {
+  dir <- base::file.path(base::tempdir(), "hpt_override_check")
+  withr::local_envvar(HPT_DATA_DIR = dir)
+  # stand in a drive check that always fails: it must not run when HPT_DATA_DIR is set
+  real_check <- base::get("hpt_default_data_dir", envir = base::globalenv())
+  base::assign("hpt_default_data_dir", function() base::stop("drive check ran"), envir = base::globalenv())
+  withr::defer(base::assign("hpt_default_data_dir", real_check, envir = base::globalenv()))
+  testthat::expect_equal(hpt_data_dir(), dir)
+  testthat::expect_equal(hpt_path("x"), base::file.path(dir, "x"))
+})

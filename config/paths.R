@@ -41,7 +41,12 @@ hpt_default_data_dir <- function() {
 }
 
 hpt_data_dir <- function(must_exist = TRUE) {
-  data_dir <- base::Sys.getenv("HPT_DATA_DIR", unset = hpt_default_data_dir())
+  # Sys.getenv() always evaluates `unset`, so the drive check must not sit there:
+  # it would fail on any machine without the drive even when HPT_DATA_DIR is set
+  data_dir <- base::Sys.getenv("HPT_DATA_DIR", unset = "")
+  if (!base::nzchar(data_dir)) {
+    data_dir <- hpt_default_data_dir()
+  }
 
   if (must_exist && !base::dir.exists(data_dir)) {
     parent_dir <- base::dirname(data_dir)
