@@ -76,6 +76,10 @@ signed link, then downloading, verifying, and extracting it on any machine with 
 | `tools/etag_verify.py` | Checks the zip against the server's S3 multipart ETag, with resumable per-part hashing |
 | `tools/fast_unzip.py` | Extracts at disk speed with CRC checks and resume (macOS `unzip` managed 7 MB/s) |
 | `tools/refresh_readme_figures.sh` | Copies the current figures into `docs/figures/` for this README |
+| `tools/make_mrf_fixtures.py`, `tools/make_crosswalk_fixtures.R` | Regenerate the test fixtures from the real CMS and tracker headers (byte-identical to the committed ones) |
+| `tools/make_pe_hospital_systems.R` | Provenance of `config/pe_hospital_systems.csv` (the CSV is the source of truth) |
+| `tools/smoke_discovery.R` | Live, rate-limited smoke test of `cms-hpt.txt` discovery and the footer fallback |
+| `tools/run_test_file.R` | Run one test file with the suite's setup |
 | `tools/export_public.sh` | Builds the public code copy ([hpt_prices_public](https://github.com/mufflyt/hpt_prices_public)): code, tests, config, tools, and the download guide, without figures, data-derived docs, or known answers; refuses to export if a known-answer value or file hash leaks |
 
 ## Pipeline
@@ -148,7 +152,12 @@ Trilliant Health data, which its terms of service do not allow us to redistribut
 Rscript tests/testthat.R
 ```
 
-All tests are offline. Fixtures are small synthetic files built from the verbatim CMS
-v3.0 template headers, and they go through the real DuckDB and jq read paths. GitHub Actions
-(`.github/workflows/r-tests.yml`) runs the suite on every pull request and push to `main`, with
-the DuckDB CLI installed.
+All tests are offline and run with `HPT_DATA_DIR` pointed at a temporary folder. Fixtures are
+small synthetic files built from the verbatim CMS v3.0 template headers, and they go through the
+real DuckDB and jq read paths; `tests/testthat/fixtures/README.md` says where each came from and
+which tool regenerates it. `tools/run_test_file.R tests/testthat/test-geo.R` runs a single file.
+
+CI (`.github/workflows/r-tests.yml`, with the DuckDB CLI installed) runs on the public code copy,
+[hpt_prices_public](https://github.com/mufflyt/hpt_prices_public), which carries the same code and
+tests. After merging here, publish with `tools/export_public.sh ~/hpt_prices_public`, then commit
+and push in that clone.
