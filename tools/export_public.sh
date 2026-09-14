@@ -23,6 +23,8 @@ private_paths=(
   docs/addon_methods.md
   docs/ownership_methods.md
   docs/cleanup_impact.md
+  docs/childbirth_methods.md
+  docs/turquoise_pricepoints.md
   NEWS.md
   CHANGELOG.md
   config/known_answers.csv
@@ -45,6 +47,8 @@ s = re.sub(r"\n## Documentation\n.*?(?=\n## Tests\n)", """
 ## Documentation
 
 - `docs/trilliant_download.md`: getting the Trilliant data onto a machine.
+- `docs/childbirth_analytic_spec.md`: design of the NTSV cesarean and midwife supply analysis, with the
+  exact CDC WONDER exports it reads.
 - Every function file in `R/` opens with a comment block describing its method and rules.
 
 Methods write-ups, figures, and results are kept with the data, not here: they are derived from

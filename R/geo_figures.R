@@ -547,7 +547,8 @@ census_region <- function(abb) {
 #' payer's median within each region.
 state_region_chart <- function(summary, national, payer_types = base::c("commercial", "medicaid"),
                                colours = base::c(commercial = "#b2182b", medicaid = "#2166ac", medicare_advantage = "#4d4d4d"),
-                               limits = base::c(0.1, 8)) {
+                               limits = base::c(0.1, 8), one_label = "Medicare",
+                               breaks = base::c(0.25, 0.5, 1, 2, 4)) {
   data <- summary |>
     dplyr::filter(.data$payer_type %in% payer_types) |>
     dplyr::mutate(region = census_region(.data$state)) |>
@@ -587,8 +588,9 @@ state_region_chart <- function(summary, national, payer_types = base::c("commerc
       ggplot2::scale_colour_manual(values = stats::setNames(colours[payer_types], payer_label(payer_types)), name = NULL,
                                    breaks = payer_label(payer_types)) +
       ggplot2::scale_shape_manual(values = base::c("5 or more hospitals" = 16, "Fewer than 5 hospitals" = 21), name = NULL) +
-      ggplot2::scale_x_continuous(transform = "log", limits = limits, breaks = base::c(0.25, 0.5, 1, 2, 4),
-                                  labels = base::c("0.25x", "0.5x", "Medicare", "2x", "4x"), expand = ggplot2::expansion(0)) +
+      ggplot2::scale_x_continuous(transform = "log", limits = limits, breaks = breaks,
+                                  labels = base::ifelse(breaks == 1, one_label, base::paste0(base::format(breaks, trim = TRUE, drop0trailing = TRUE), "x")),
+                                  expand = ggplot2::expansion(0)) +
       ggplot2::scale_y_continuous(breaks = base::seq_along(order), labels = order, expand = ggplot2::expansion(add = 0.6)) +
       ggplot2::labs(title = region_name, x = NULL, y = NULL) +
       ggplot2::theme_minimal(base_size = 12) +

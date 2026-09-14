@@ -8,8 +8,8 @@
 > of service. To use the pipeline, download the data yourself (`docs/trilliant_download.md`).
 
 Hospital price transparency prices for colonoscopy, endometrial biopsy, IUD insertion,
-vaginal hysterectomy, and bariatric surgery, for as many US hospitals as possible, keyed by
-CMS Certification Number (CCN).
+vaginal hysterectomy, bariatric surgery, and childbirth, for as many US hospitals as possible,
+keyed by CMS Certification Number (CCN).
 
 Every hospital must publish a machine-readable file (MRF) of its standard charges, list
 it in a `cms-hpt.txt` file at the root of the website that hosts it, and link to it from
@@ -38,6 +38,10 @@ checked against the CMS 2026 physician fee schedule RVU file (RVU26C) with
 | dc | 58120 |
 | hysteroscopy_sampling | 58558 |
 | office_visit_em | 99213 (for the emb_colonoscopy office-visit payer ratio) |
+| drg_vaginal_delivery | MS-DRG 796-798, 805-807 (anchor 807, uncomplicated vaginal delivery) |
+| drg_cesarean | MS-DRG 783-788 (anchor 788, uncomplicated cesarean) |
+| vaginal_delivery_cpt | 59400, 59409, 59410, 59610, 59612, 59614 (physician fees) |
+| cesarean_cpt | 59510, 59514, 59515, 59618, 59620, 59622 (physician fees) |
 
 A code counts only when its value and its declared code type both match. Hospitals
 reuse the same digits in other code systems (a chargemaster item "58100", APR-DRG 742),
@@ -79,6 +83,7 @@ signed link, then downloading, verifying, and extracting it on any machine with 
 | `tools/make_mrf_fixtures.py`, `tools/make_crosswalk_fixtures.R` | Regenerate the test fixtures from the real CMS and tracker headers (byte-identical to the committed ones) |
 | `tools/make_pe_hospital_systems.R` | Provenance of `config/pe_hospital_systems.csv` (the CSV is the source of truth) |
 | `tools/smoke_discovery.R` | Live, rate-limited smoke test of `cms-hpt.txt` discovery and the footer fallback |
+| `tools/smoke_ntsv.R` | Runs `analysis/18` end to end on synthetic CDC WONDER exports in a temporary data folder |
 | `tools/run_test_file.R` | Run one test file with the suite's setup |
 | `tools/export_public.sh` | Builds the public code copy ([hpt_prices_public](https://github.com/mufflyt/hpt_prices_public)): code, tests, config, tools, and the download guide, without figures, data-derived docs, or known answers; refuses to export if a known-answer value or file hash leaks |
 
@@ -103,23 +108,35 @@ Rscript analysis/12_addon_value.R         # is an add-on procedure worth the los
 Rscript analysis/13_ownership_prices.R    # private-equity vs other hospitals
 Rscript analysis/14_emb_payer_ratios.R    # within-hospital payer-to-Medicare ratios
 Rscript analysis/15_geographic_figures.R  # colonoscopy maps and state ranking, relative to Medicare OPPS
+Rscript analysis/16_childbirth_prices.R   # delivery DRG prices vs the Medicare IPPS benchmark; cesarean premium
+Rscript analysis/17_midwifery_presence.R  # midwives around delivery hospitals vs their prices (exploratory)
+Rscript analysis/18_ntsv_midwife_supply.R # county NTSV cesarean rate vs midwife supply (needs CDC WONDER exports)
 ```
 
-`12` depends on `11`; `13` to `15` read `hpt.duckdb` directly. After changing a cleaning rule,
-rerun `09` and everything after it.
+`12` depends on `11`; `13` to `16` read `hpt.duckdb` directly; `17` and `18` read `16`'s outputs.
+They also read the AMCB roster, birth centers, and county births from the midwifery repository (`MIDWIFERY_DIR`, default `~/midwifery`). `18` stops and prints the exact
+query for any CDC WONDER export missing from `HPT_DATA_DIR/reference/cdc_wonder/`
+(`docs/childbirth_analytic_spec.md`). After changing a cleaning rule, rerun `09` and everything
+after it.
 
 ### The database (`hpt.duckdb`)
 
 | Table | Grain | Notes |
 |---|---|---|
-| `fact_rate` | file x charge line x code x payer/plan | sorted by (code_id, file_id); ENUM setting, billing class, methodology; `plausible`, `fee_type` (+ `fee_type_inferred`), and `case_line` flags |
+| `fact_rate` | file x charge line x code x payer/plan | sorted by (code_id, file_id); ENUM setting, billing class, methodology; `plausible`, `fee_type` (+ `fee_type_inferred`), `case_line`, `per_diem_converted`, and `per_diem_as_case` flags; `case_dollar` (the stay price analyses use) |
 | `ref_code_gross` | code | typical facility and professional gross, the blank-billing-class cutoff, case-line thresholds |
+| `ref_drg_los` | MS-DRG | CMS FY 2026 geometric mean length of stay and Medicare's national per-day payment (per-diem conversion) |
 | `dim_code` | codebook code | concept, `anchor` (reference code per concept), `active_2026` |
 | `dim_payer` | distinct payer/plan text | `payer_type` from `config/payer_type_rules.csv`; Trilliant's own label kept alongside |
 | `dim_file` | MRF file | source, URL, version, dates, header identifiers |
 | `bridge_file_ccn` | file x CCN | unambiguous crosswalk matches only |
 | `dim_hospital` | CMS CCN | roster plus AHRQ health system |
 | `v_rate`, `v_hospital_rate` | views | denormalized; `v_hospital_rate` has one row per hospital a rate applies to, with state |
+
+Per-diem rates for MS-DRGs are converted to a stay price at load (rate x the CMS geometric mean
+length of stay), unless the rate is at least 3x Medicare's per-day payment, in which case it is
+taken as a mislabeled stay price. The listed rate stays in `negotiated_dollar`; analyses use
+`case_dollar`.
 
 State medians are three-stage: the median of each payer/plan contract's rows, then the
 median across contracts within each hospital, then the median across hospitals in the
@@ -141,6 +158,8 @@ Lake queries run through the DuckDB CLI (>= 1.5, required for DuckLake 1.0), not
 ## Documentation
 
 - `docs/trilliant_download.md`: getting the Trilliant data onto a machine.
+- `docs/childbirth_analytic_spec.md`: design of the NTSV cesarean and midwife supply analysis, with the
+  exact CDC WONDER exports it reads.
 - Every function file in `R/` opens with a comment block describing its method and rules.
 
 Methods write-ups, figures, and results are kept with the data, not here: they are derived from

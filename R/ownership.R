@@ -561,7 +561,7 @@ ownership_price_sql <- function(codes = base::names(ownership_codes()),
   negotiated_sql <- if (base::length(negotiated_types) > 0L) {
     base::paste0(
       "  SELECT ccn, code, payer_type, median(plan_median) AS price, count(*) AS n_contracts, sum(n_rows) AS n_rows\n",
-      "  FROM (SELECT ccn, code, payer_type, payer_name, plan_name, median(negotiated_dollar) AS plan_median, count(*) AS n_rows\n",
+      "  FROM (SELECT ccn, code, payer_type, payer_name, plan_name, median(case_dollar) AS plan_median, count(*) AS n_rows\n",
       "        FROM base WHERE plausible AND payer_type IN (", sql_string_list(negotiated_types), ") GROUP BY ALL)\n",
       "  GROUP BY ALL\n"
     )
@@ -578,7 +578,7 @@ ownership_price_sql <- function(codes = base::names(ownership_codes()),
   base::paste0(
     "WITH base AS (\n",
     "  SELECT ccn, code, CAST(payer_type AS VARCHAR) AS payer_type, payer_name, plan_name,\n",
-    "         negotiated_dollar, plausible, discounted_cash, description\n",
+    "         case_dollar, plausible, discounted_cash, description\n",
     "  FROM v_hospital_rate\n",
     "  WHERE ccn IS NOT NULL AND state IS NOT NULL AND code IN (", sql_string_list(codes), ")\n",
     "    AND fee_type = 'facility'\n",

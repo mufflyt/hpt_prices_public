@@ -201,3 +201,50 @@ testthat::test_that("file states keep USPS codes and fall back to the address", 
   )
   testthat::expect_equal(DBI::dbGetQuery(con, sql)$clean, base::c("CO", "KS", "SC", NA, NA))
 })
+
+testthat::test_that("per-diem MS-DRG rates become stay prices; other rows keep their rate", {
+  dir <- base::tempfile("db")
+  base::dir.create(dir)
+  prices <- price_fixture()
+  drg <- prices[base::c(7, 7, 1), ]
+  drg$concept <- "drg_uterine_nonmalignant"
+  drg$code <- "742"
+  drg$code_system <- "MS-DRG"
+  drg$setting <- "inpatient"
+  drg <- dplyr::bind_rows(drg, drg[1, ])
+  drg$negotiated_dollar <- base::c(4000, 20000, 18000, 16000)
+  drg$methodology <- base::c("per diem", "case rate", "case rate", "per diem")
+  prices_path <- base::file.path(dir, "prices.parquet")
+  arrow::write_parquet(dplyr::bind_rows(prices, drg), prices_path)
+  crosswalk_path <- base::file.path(dir, "crosswalk.parquet")
+  arrow::write_parquet(
+    tibble::tibble(mrf_file_id = base::c("f1", "f2", "f3"), ccn = base::c("060011", "060024", NA),
+                   ccn_match_method = "mrf_url", ccn_match_score = 1, ccn_conflict = FALSE, ccn_ambiguous = FALSE,
+                   state = base::c("CO", "CO", "TX")),
+    crosswalk_path
+  )
+  universe <- tibble::tibble(
+    facility_id = base::c("060011", "060024"), facility_name = base::c("Alpha", "Beta"), address = "x",
+    citytown = "Denver", state = "CO", zip_code = "80204", hospital_type = "Acute Care Hospitals",
+    hospital_ownership = "Government", health_sys_id = NA_character_, health_sys_name = NA_character_
+  )
+  db_path <- base::file.path(dir, "hpt.duckdb")
+  base::suppressMessages(build_hpt_database(prices_path, crosswalk_path, universe, test_codebook(), db_path = db_path,
+                                            drg_los = tibble::tibble(code = "742", gmlos = 2.5, medicare_per_day = 3000)))
+
+  facts <- duckdb_query("SELECT negotiated_dollar, case_dollar, per_diem_converted, per_diem_as_case FROM fact_rate ORDER BY negotiated_dollar",
+                        database = db_path, read_only = TRUE)
+  # the $4,000 per diem is 2.5 days x 4,000 = 10,000; case rates and non-DRG rows keep their rate
+  testthat::expect_equal(facts$case_dollar[facts$negotiated_dollar == 4000], 10000)
+  testthat::expect_true(facts$per_diem_converted[facts$negotiated_dollar == 4000])
+  testthat::expect_equal(base::sum(facts$per_diem_converted), 1)
+  testthat::expect_equal(facts$case_dollar[facts$negotiated_dollar != 4000], facts$negotiated_dollar[facts$negotiated_dollar != 4000])
+  # a $16,000 "per diem" is over 3 x the $3,000 Medicare per-day rate: a stay price mislabeled, kept as listed
+  testthat::expect_true(facts$per_diem_as_case[facts$negotiated_dollar == 16000])
+
+  medians <- compute_state_medians(db_path, out_dir = dir)
+  co <- medians |> dplyr::filter(.data$state == "CO", .data$code == "742", .data$insurance_type == "commercial")
+  # Beta (f2), Aetna PPO: per diem 10,000, case rate 20,000, mislabeled 16,000 (median 16,000);
+  # Alpha (f1): 18,000
+  testthat::expect_equal(co$median_price, stats::median(base::c(16000, 18000)))
+})

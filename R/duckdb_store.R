@@ -127,6 +127,33 @@ fee_type_min_separation <- function() {
   2.5
 }
 
+#' Per-diem rates for inpatient DRGs
+#'
+#' A per-diem contract prices one day of the stay, so a hospital whose
+#' contracts are per diem looked several times cheaper than one paid by case
+#' rate for the same DRG. Per-diem rows are a small share of MS-DRG rows but
+#' appear in a sizable share of files, so they move hospital medians. At
+#' load, a per-diem rate for an MS-DRG code becomes a stay price,
+#' `case_dollar` = rate x the DRG's geometric mean length of stay (CMS IPPS
+#' Table 5; 2.0 days for DRG 807, 2.9 for DRG 788), and `per_diem_converted`
+#' marks it. The listed rate stays in `negotiated_dollar`; medians, payer
+#' ratios, and ownership prices use `case_dollar`, which equals
+#' `negotiated_dollar` for every other row.
+#'
+#' Following Turquoise Health's delivery-price method (pricepoints,
+#' 2025_04_delivery_costs), a "per diem" rate at or above
+#' `per_diem_case_multiple()` (3) times Medicare's national per-day payment
+#' for the DRG (standard IPPS payment at wage index 1 / length of stay) is
+#' taken as a stay price mislabeled per diem: it is not multiplied, and
+#' `per_diem_as_case` marks it.
+per_diem_case_multiple <- function() {
+  3
+}
+
+per_diem_note <- function() {
+  "per-diem MS-DRG rates x CMS Table 5 geometric mean LOS"
+}
+
 #' USPS state and territory codes a file's state may take
 valid_state_codes <- function() {
   base::c(datasets::state.abb, "DC", "PR", "VI", "GU", "AS", "MP")
@@ -164,11 +191,16 @@ clean_state_sql <- function(state_col, address_col = NULL) {
 #'   files that duplicate a Trilliant file (cross_source_duplicate_file_ids()).
 #' @param fee_type_min_files Files each typical gross needs before blank
 #'   billing classes are inferred from it (see case_line_multiple()).
+#' @param drg_los tibble(code, gmlos): geometric mean length of stay per
+#'   MS-DRG (CMS IPPS Table 5, load_ipps_drg_weights()). Per-diem rates for
+#'   MS-DRG codes are converted to a stay price with it (see per_diem_note()).
+#'   NULL leaves per-diem rates as listed.
 build_hpt_database <- function(price_globs, crosswalk_path, universe, codebook,
                                db_path = hpt_database_path(),
                                payer_rules = load_payer_type_rules(),
                                exclude_file_ids = NULL,
                                fee_type_min_files = 20L,
+                               drg_los = NULL,
                                dry_run = FALSE) {
   require_duckdb_cli("1.5.0")
   enums <- hpt_enum_values()
@@ -179,11 +211,15 @@ build_hpt_database <- function(price_globs, crosswalk_path, universe, codebook,
   input_dir <- if (dry_run) hpt_path("build_inputs") else base::tempdir()
   universe_path <- base::tempfile(tmpdir = input_dir, fileext = ".parquet")
   codebook_path <- base::tempfile(tmpdir = input_dir, fileext = ".parquet")
+  los_path <- base::tempfile(tmpdir = input_dir, fileext = ".parquet")
   if (!dry_run) {
-    base::on.exit(base::unlink(base::c(universe_path, codebook_path)), add = TRUE)
+    base::on.exit(base::unlink(base::c(universe_path, codebook_path, los_path)), add = TRUE)
   }
   arrow::write_parquet(repair_utf8(universe), universe_path)
   arrow::write_parquet(repair_utf8(codebook), codebook_path)
+  drg_los <- drg_los %||% tibble::tibble(code = base::character(), gmlos = base::numeric())
+  if (!"medicare_per_day" %in% base::names(drg_los)) drg_los$medicare_per_day <- NA_real_
+  arrow::write_parquet(dplyr::select(drg_los, "code", "gmlos", "medicare_per_day"), los_path)
 
   prices_sql <- base::paste(
     base::sprintf("SELECT * FROM read_parquet(%s, hive_partitioning = true, union_by_name = true)", sql_string(price_globs)),
@@ -191,6 +227,11 @@ build_hpt_database <- function(price_globs, crosswalk_path, universe, codebook,
   )
   crosswalk_cols <- arrow::open_dataset(crosswalk_path)$schema$names
   stg_setting <- enum_normalize_sql("s.setting", enums$setting)
+  stg_methodology <- enum_normalize_sql("s.methodology", enums$methodology, base::c("percent of total billed charge" = "percent of total billed charges", "percentage of total billed charges" = "percent of total billed charges", "fee-schedule" = "fee schedule"))
+  per_diem_convert <- base::paste0(
+    "(", stg_methodology, " = 'per diem' AND los.gmlos IS NOT NULL ",
+    "AND (los.medicare_per_day IS NULL OR s.negotiated_dollar < ", per_diem_case_multiple(), " * los.medicare_per_day))"
+  )
   stg_billing_class <- enum_normalize_sql("s.billing_class", enums$billing_class, base::c(institutional = "facility"))
   # explicit billing class first; a blank one is professional only when its
   # gross sits below the code's facility/professional cutoff
@@ -236,6 +277,13 @@ build_hpt_database <- function(price_globs, crosswalk_path, universe, codebook,
       "code, code_system, CAST(concept AS concept_t) AS concept, label, CAST(active_2026 AS BOOLEAN) AS active_2026, ",
       "CAST(coalesce(anchor, 'FALSE') AS BOOLEAN) AS anchor, code_family ",
       "FROM read_parquet(", sql_string(codebook_path), ");"
+    ),
+
+    # ref_drg_los: geometric mean length of stay per MS-DRG, for per-diem rates
+    base::paste0(
+      "CREATE TABLE ref_drg_los AS SELECT lpad(CAST(code AS VARCHAR), 3, '0') AS code, CAST(gmlos AS DOUBLE) AS gmlos, ",
+      "CAST(medicare_per_day AS DOUBLE) AS medicare_per_day ",
+      "FROM read_parquet(", sql_string(los_path), ") WHERE gmlos > 0;"
     ),
 
     # ref_code_gross: typical facility and professional gross per code (from
@@ -323,18 +371,22 @@ build_hpt_database <- function(price_globs, crosswalk_path, universe, codebook,
       "f.file_id, c.code_id, p.payer_id, ",
       "CAST(", stg_setting, " AS setting_t) AS setting, ",
       "CAST(", stg_billing_class, " AS billing_class_t) AS billing_class, ",
-      "CAST(", enum_normalize_sql("s.methodology", enums$methodology, base::c("percent of total billed charge" = "percent of total billed charges", "percentage of total billed charges" = "percent of total billed charges", "fee-schedule" = "fee schedule")), " AS methodology_t) AS methodology, ",
+      "CAST(", stg_methodology, " AS methodology_t) AS methodology, ",
       "s.type_verified, s.gross, s.discounted_cash, s.min, s.max, s.negotiated_dollar, s.negotiated_percentage, ",
       "s.negotiated_algorithm, s.median_amount, s.p10, s.p90, s.count, s.estimated_amount, s.description, s.modifiers, s.notes, ",
       plausible_rate_sql("s.negotiated_dollar"), " AS plausible, ",
       "CAST(", stg_fee_type, " AS fee_type_t) AS fee_type, ",
       "coalesce(", stg_billing_class, " NOT IN ('facility', 'professional', 'both') AND s.gross > 1 AND g.professional_gross_cutoff IS NOT NULL, false) AS fee_type_inferred, ",
-      "coalesce(s.gross > CASE WHEN ", stg_fee_type, " = 'professional' THEN g.professional_case_line_gross ELSE g.facility_case_line_gross END, false) AS case_line ",
+      "coalesce(s.gross > CASE WHEN ", stg_fee_type, " = 'professional' THEN g.professional_case_line_gross ELSE g.facility_case_line_gross END, false) AS case_line, ",
+      "coalesce(", per_diem_convert, ", false) AS per_diem_converted, ",
+      "coalesce(", stg_methodology, " = 'per diem' AND los.gmlos IS NOT NULL AND NOT (", per_diem_convert, "), false) AS per_diem_as_case, ",
+      "CASE WHEN ", per_diem_convert, " THEN s.negotiated_dollar * los.gmlos ELSE s.negotiated_dollar END AS case_dollar ",
       "FROM stg AS s ",
       "JOIN dim_file AS f USING (mrf_file_id) ",
       "JOIN dim_code AS c ON c.code = s.code AND c.concept = CAST(s.concept AS concept_t) ",
       "LEFT JOIN dim_payer AS p ON p.payer_key = s.payer_key ",
       "LEFT JOIN ref_code_gross AS g ON g.code_id = c.code_id ",
+      "LEFT JOIN ref_drg_los AS los ON c.code_system = 'MS-DRG' AND los.code = c.code ",
       "ORDER BY c.code_id, f.file_id;"
     ),
 

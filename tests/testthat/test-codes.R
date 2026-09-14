@@ -6,10 +6,11 @@ testthat::test_that("codebook loads with the expected concepts and no duplicates
     base::c(
       "colonoscopy", "emb", "iud_insertion", "iud_device",
       "vaginal_hysterectomy", "lavh", "drg_uterine_nonmalignant",
-      "bariatric_surgery", "drg_bariatric", "surgical_pathology", "dc", "hysteroscopy_sampling", "office_visit_em"
+      "bariatric_surgery", "drg_bariatric", "surgical_pathology", "dc", "hysteroscopy_sampling", "office_visit_em",
+      "drg_cesarean", "drg_vaginal_delivery", "vaginal_delivery_cpt", "cesarean_cpt"
     )
   )
-  testthat::expect_true(base::all(base::c("58100", "58300", "45378", "G0121", "742", "743", "43775", "43644", "619", "88305") %in% codebook$code))
+  testthat::expect_true(base::all(base::c("58100", "58300", "45378", "G0121", "742", "743", "43775", "43644", "619", "88305", "788", "807", "59400", "59510") %in% codebook$code))
 })
 
 testthat::test_that("normalize_code pads and strips DRGs but leaves CPT alone", {
