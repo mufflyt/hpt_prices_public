@@ -12,7 +12,9 @@
 #' insurance types so they sit next to the negotiated rates.
 #'
 #' Rules applied (all documented in the output's `rule` attribute):
-#' - negotiated rates: only rows flagged `plausible` at load (R/duckdb_store.R);
+#' - negotiated rates: only rows flagged `plausible` at load (R/duckdb_store.R),
+#'   priced as `case_dollar` (per-diem MS-DRG rates converted to a stay; see
+#'   per_diem_note());
 #' - facility and professional fees are reported separately (`fee_type`,
 #'   set at load: explicit billing class, else inferred from gross where the
 #'   code's facility and professional gross charges separate, else facility;
@@ -76,7 +78,7 @@ state_medians_sql <- function(exclude_file_ids = NULL) {
     "WITH base AS (\n",
     "  SELECT unit_id, state, CAST(concept AS VARCHAR) AS concept, code, anchor,\n",
     "         CAST(fee_type AS VARCHAR) AS fee_type,\n",
-    "         CAST(payer_type AS VARCHAR) AS payer_type, payer_name, plan_name, negotiated_dollar, plausible, discounted_cash, gross, description\n",
+    "         CAST(payer_type AS VARCHAR) AS payer_type, payer_name, plan_name, case_dollar, plausible, discounted_cash, gross, description\n",
     "  FROM v_hospital_rate\n",
     "  WHERE state IS NOT NULL AND ", rate_row_filter_sql(), exclude_sql, "\n",
     "),\n",
@@ -84,7 +86,7 @@ state_medians_sql <- function(exclude_file_ids = NULL) {
     # lines repeat it (HCA lists MS-DRG 742 on 69 lines)
     "plan_rates AS (\n",
     "  SELECT state, unit_id, concept, code, anchor, fee_type, payer_type, payer_name, plan_name,\n",
-    "         median(negotiated_dollar) AS plan_median, count(*) AS n_rows\n",
+    "         median(case_dollar) AS plan_median, count(*) AS n_rows\n",
     "  FROM base WHERE plausible AND payer_type IS NOT NULL GROUP BY ALL\n",
     "),\n",
     "unit_rates AS (\n",

@@ -19,11 +19,21 @@ if (base::length(price_globs) == 0L) {
   base::stop("No price files found. Run 01 (Trilliant) and/or the gap crawl first.")
 }
 
+# per-diem MS-DRG rates become stay prices with CMS Table 5 lengths of stay
+# (downloaded on first run to reference/cms_ipps_drg)
+download_ipps_drg_tables()
+amounts <- load_ipps_standardized_amounts()
+# national per-day Medicare payment (wage index 1: Table 1B amounts + capital), to catch mislabeled per diems
+national_base <- base::sum(amounts$low_wage) + amounts$capital
+drg_los <- load_ipps_drg_weights() |>
+  dplyr::transmute(.data$code, .data$gmlos, medicare_per_day = national_base * .data$weight / .data$gmlos)
+
 build_hpt_database(
   price_globs,
   crosswalk_path = hpt_path("crosswalk", "facility_ccn.parquet"),
   universe = reference$universe,
-  codebook = load_codebook("config/codebook.csv")
+  codebook = load_codebook("config/codebook.csv"),
+  drg_los = drg_los
 )
 # Both copies of a file held by both sources stay in the database so the
 # validation suite can compare them; the medians step excludes duplicates.

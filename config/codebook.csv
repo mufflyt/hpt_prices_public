@@ -54,3 +54,27 @@ surgical_pathology,88305,CPT,procedure,"Level IV surgical pathology, gross and m
 dc,58120,CPT,procedure,"Dilation and curettage, diagnostic and/or therapeutic (nonobstetrical)",TRUE,TRUE
 hysteroscopy_sampling,58558,CPT,procedure,"Hysteroscopy with sampling (biopsy) of endometrium and/or polypectomy",TRUE,TRUE
 office_visit_em,99213,CPT,procedure,"Office or other outpatient visit, established patient, low medical decision making",TRUE,FALSE
+drg_cesarean,783,MS-DRG,ms_drg,Cesarean section with sterilization with MCC,TRUE,FALSE
+drg_cesarean,784,MS-DRG,ms_drg,Cesarean section with sterilization with CC,TRUE,FALSE
+drg_cesarean,785,MS-DRG,ms_drg,Cesarean section with sterilization without CC/MCC,TRUE,FALSE
+drg_cesarean,786,MS-DRG,ms_drg,Cesarean section without sterilization with MCC,TRUE,FALSE
+drg_cesarean,787,MS-DRG,ms_drg,Cesarean section without sterilization with CC,TRUE,FALSE
+drg_cesarean,788,MS-DRG,ms_drg,Cesarean section without sterilization without CC/MCC,TRUE,TRUE
+drg_vaginal_delivery,796,MS-DRG,ms_drg,Vaginal delivery with sterilization/D&C with MCC,TRUE,FALSE
+drg_vaginal_delivery,797,MS-DRG,ms_drg,Vaginal delivery with sterilization/D&C with CC,TRUE,FALSE
+drg_vaginal_delivery,798,MS-DRG,ms_drg,Vaginal delivery with sterilization/D&C without CC/MCC,TRUE,FALSE
+drg_vaginal_delivery,805,MS-DRG,ms_drg,Vaginal delivery without sterilization/D&C with MCC,TRUE,FALSE
+drg_vaginal_delivery,806,MS-DRG,ms_drg,Vaginal delivery without sterilization/D&C with CC,TRUE,FALSE
+drg_vaginal_delivery,807,MS-DRG,ms_drg,Vaginal delivery without sterilization/D&C without CC/MCC,TRUE,TRUE
+vaginal_delivery_cpt,59400,CPT,procedure,"Routine obstetric care with vaginal delivery (global: antepartum, delivery, postpartum)",TRUE,TRUE
+vaginal_delivery_cpt,59409,CPT,procedure,Vaginal delivery only,TRUE,FALSE
+vaginal_delivery_cpt,59410,CPT,procedure,Vaginal delivery with postpartum care,TRUE,FALSE
+vaginal_delivery_cpt,59610,CPT,procedure,Routine obstetric care with vaginal birth after cesarean (global),TRUE,FALSE
+vaginal_delivery_cpt,59612,CPT,procedure,"Vaginal birth after cesarean, delivery only",TRUE,FALSE
+vaginal_delivery_cpt,59614,CPT,procedure,Vaginal birth after cesarean with postpartum care,TRUE,FALSE
+cesarean_cpt,59510,CPT,procedure,"Routine obstetric care with cesarean delivery (global: antepartum, delivery, postpartum)",TRUE,TRUE
+cesarean_cpt,59514,CPT,procedure,Cesarean delivery only,TRUE,FALSE
+cesarean_cpt,59515,CPT,procedure,Cesarean delivery with postpartum care,TRUE,FALSE
+cesarean_cpt,59618,CPT,procedure,Routine obstetric care with cesarean after attempted vaginal birth after cesarean (global),TRUE,FALSE
+cesarean_cpt,59620,CPT,procedure,"Cesarean after attempted vaginal birth after cesarean, delivery only",TRUE,FALSE
+cesarean_cpt,59622,CPT,procedure,Cesarean after attempted vaginal birth after cesarean with postpartum care,TRUE,FALSE
