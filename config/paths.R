@@ -8,13 +8,22 @@
 #'
 #' Set `HPT_DATA_DIR` to override (tests point it at a temp directory).
 
-#' The external drive's volume name is "MufflySamsung", but macOS mounts it at
-#' "/Volumes/MufflySamsung 1" whenever a stale folder already occupies
-#' "/Volumes/MufflySamsung" (true on 2026-09-12). A stale folder lives on the
-#' boot disk, so writing there would silently fill it. Pick whichever
-#' candidate is a real mount point (a different device from "/").
+#' The external drive's volume name is "MufflySamsung", but macOS appends a
+#' number whenever a stale folder already occupies the name: it mounted at
+#' "/Volumes/MufflySamsung 1" on 2026-09-12 and at "/Volumes/MufflySamsung 3"
+#' on 2026-09-17, by which point "MufflySamsung", " 1" and " 2" were all
+#' stale, empty folders on the boot disk. So the candidates are globbed rather
+#' than listed: a hardcoded list goes stale the next time the drive is
+#' remounted, and the failure is a confusing "not mounted" while the drive sits
+#' there mounted.
+#'
+#' A stale folder lives on the boot disk, where writing 80 GB of lake would
+#' silently fill it, so a candidate counts only if it is a real mount point (df
+#' reports the candidate itself, not "/"). Among real mount points, one already
+#' holding `hpt_prices` wins, so a second, empty copy of the drive cannot
+#' quietly become the destination.
 hpt_default_data_dir <- function() {
-  candidates <- base::c("/Volumes/MufflySamsung", "/Volumes/MufflySamsung 1")
+  candidates <- hpt_volume_candidates()
 
   for (candidate in candidates) {
     if (!base::dir.exists(candidate)) {
@@ -38,6 +47,21 @@ hpt_default_data_dir <- function() {
     base::paste(candidates, collapse = ", "),
     "). Mount it or set HPT_DATA_DIR."
   )
+}
+
+#' Candidate mount paths for the data drive, best first
+#'
+#' Globbed so a remount under a different number is still found, sorted so the
+#' order is stable, and with any path already holding `hpt_prices` first.
+#' Whether a candidate is a real mount point is checked by the caller.
+#'
+#' @param pattern glob for the volume; the default matches every number macOS
+#'   may append.
+hpt_volume_candidates <- function(pattern = "/Volumes/MufflySamsung*") {
+  found <- base::sort(base::Sys.glob(pattern))
+  has_data <- base::vapply(found, function(p) base::dir.exists(base::file.path(p, "hpt_prices")),
+                           base::logical(1), USE.NAMES = FALSE)
+  base::c(found[has_data], found[!has_data])
 }
 
 hpt_data_dir <- function(must_exist = TRUE) {
