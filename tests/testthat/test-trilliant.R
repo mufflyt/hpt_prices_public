@@ -38,7 +38,11 @@ build_trilliant_fixture <- function(path) {
             (3, 3, 1, 'CDM COLLISION',  50.0,  NULL,  NULL,    NULL,    NULL,  '58100', NULL,  NULL,      'Aetna',  10.0,    NULL),
             (4, 4, 1, 'DRG 742 VIA OC', NULL,  NULL,  NULL,    NULL,    NULL,  NULL,   '0742', 'MS-DRG',  'Cigna',  31000.0, 30000.0),
             (5, 5, 1, 'APR DRG',        NULL,  NULL,  NULL,    NULL,    NULL,  NULL,   '742',  'APR-DRG', 'Cigna',  9999.0,  NULL),
-            (6, 6, 1, 'DRG 743',        NULL,  NULL,  NULL,    NULL,    '743', NULL,   NULL,   NULL,      'United', 25173.0, NULL)
+            (6, 6, 1, 'DRG 743',        NULL,  NULL,  NULL,    NULL,    '743', NULL,   NULL,   NULL,      'United', 25173.0, NULL),
+            (7, 7, 1, 'APR VAGINAL SOI1', NULL, NULL,  NULL,    NULL,    NULL,  NULL,   '5601', 'APR-DRG', 'Cigna',  6100.0,  NULL),
+            (8, 8, 1, 'APR CESAREAN SOI4', NULL, NULL, NULL,    NULL,    NULL,  NULL,   '540-4', 'APR-DRG','Cigna',  19000.0, NULL),
+            (9, 9, 1, 'UNTYPED 560-1',   NULL,  NULL,  NULL,    NULL,    NULL,  NULL,   '560-1', NULL,     'Cigna',  5900.0,  NULL),
+            (10, 10, 1, 'MS-DRG 560-1',  NULL,  NULL,  NULL,    NULL,    NULL,  NULL,   '560-1', 'MS-DRG', 'Cigna',  5800.0,  NULL)
           ) AS r(n, cs, ps, descr, gross, cash, cpt, hcpcs, ms_drg, cdm, oc1, oc1t, payer, dollar, median);",
     # Hospital 3: a gross/cash-only IUD insertion line with no payer.
     "INSERT INTO standard_charge_details (detail_id, charge_seq, payer_seq, hospital_id, description, gross_charge, discounted_cash, cpt)
@@ -55,8 +59,8 @@ testthat::test_that("Trilliant extract gates code types, splits multi-code lines
   result <- extract_trilliant(fixture_db, test_codebook(), out_dir = out_dir)
   prices <- read_trilliant_prices(result$prices_dir)
 
-  testthat::expect_equal(result$n_price_rows, 6)
-  testthat::expect_setequal(prices$code, base::c("58100", "45378", "G0121", "742", "743", "58300"))
+  testthat::expect_equal(result$n_price_rows, 7)
+  testthat::expect_setequal(prices$code, base::c("58100", "45378", "G0121", "742", "743", "58300", "560-1"))
 
   # CDM "58100" and APR-DRG 742 were rejected; only the CPT 58100 row survives.
   testthat::expect_equal(prices$negotiated_dollar[prices$code == "58100"], 200)
@@ -64,13 +68,23 @@ testthat::test_that("Trilliant extract gates code types, splits multi-code lines
   testthat::expect_true(prices$type_verified[prices$code == "742"])
   testthat::expect_equal(prices$median_amount[prices$code == "742"], 30000)
 
+  # An APR-DRG line is kept only when its declared type names the APR grouper,
+  # and only at the severity the codebook lists. "5601" is 560 severity 1.
+  apr <- prices[prices$code == "560-1", ]
+  testthat::expect_equal(apr$concept, "apr_drg_vaginal_delivery")
+  testthat::expect_equal(apr$negotiated_dollar, 6100)
+  testthat::expect_true(apr$type_verified)
+  # severity 4 is a different product and is not in the codebook; an untyped
+  # 560-1 could be any grouper; a 560-1 declared MS-DRG is a different grouper
+  testthat::expect_false(base::any(prices$description %in% base::c("APR CESAREAN SOI4", "UNTYPED 560-1", "MS-DRG 560-1")))
+
   # One colonoscopy line carrying both 45378 and G0121 yields a row per code.
   testthat::expect_equal(prices$description[prices$code == "G0121"], "COLONOSCOPY")
   testthat::expect_equal(prices$concept[prices$code == "G0121"], "colonoscopy")
 
   # File 'aaa' shared by two facilities contributes each row once, with the
   # earliest retrieval date.
-  testthat::expect_equal(base::sum(prices$mrf_file_id == "aaa"), 5)
+  testthat::expect_equal(base::sum(prices$mrf_file_id == "aaa"), 6)
   testthat::expect_equal(base::unique(prices$retrieved_at[prices$mrf_file_id == "aaa"]), "2026-07-18")
 
   # Gross/cash-only line keeps NA payer.

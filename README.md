@@ -42,10 +42,13 @@ checked against the CMS 2026 physician fee schedule RVU file (RVU26C) with
 | drg_cesarean | MS-DRG 783-788 (anchor 788, uncomplicated cesarean) |
 | vaginal_delivery_cpt | 59400, 59409, 59410, 59610, 59612, 59614 (physician fees) |
 | cesarean_cpt | 59510, 59514, 59515, 59618, 59620, 59622 (physician fees) |
+| apr_drg_vaginal_delivery, apr_drg_cesarean | APR-DRG 560-1 and 540-1, the uncomplicated severity, for hospitals that post no MS-DRG delivery price (opt-in, `HPT_BIRTH_APR_DRG=true`) |
 
 A code counts only when its value and its declared code type both match. Hospitals
 reuse the same digits in other code systems (a chargemaster item "58100", APR-DRG 742),
-and those never match. A missing type is kept and flagged `type_verified = FALSE`.
+and those never match. A missing type is kept and flagged `type_verified = FALSE`, except
+for the APR-DRG entries: those match only a row whose declared type names the APR grouper,
+because an untyped three-digit code could be either grouper.
 
 ## Sources
 

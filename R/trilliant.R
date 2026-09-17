@@ -140,6 +140,30 @@ sql_drg_code <- function(expr) {
   )
 }
 
+#' Canonical APR-DRG code in SQL: "NNN-S", or "NNN" with no severity
+#'
+#' Mirrors normalize_apr_drg_code() in R/codes.R. Both engines must agree, so
+#' a change here needs the same change there (tests/testthat/test-codes.R
+#' compares them on the same inputs).
+sql_apr_drg_code <- function(expr) {
+  cleaned <- base::sprintf(
+    "regexp_replace(regexp_replace(upper(trim(CAST(%s AS VARCHAR))), '\\bSOI\\b|\\bSEVERITY\\b|\\bAPR[- ]?DRG\\b', '', 'g'), '[\\s._]+', '-', 'g')",
+    expr
+  )
+  trimmed <- base::sprintf("regexp_replace(regexp_replace(%s, '^-+', ''), '-+$', '')", cleaned)
+  base::sprintf(
+    base::paste0(
+      "CASE WHEN regexp_full_match(%1$s, '[0-9]{1,3}-[1-4]') ",
+      "THEN lpad(regexp_extract(%1$s, '^([0-9]{1,3})', 1), 3, '0') || '-' || regexp_extract(%1$s, '-([1-4])$', 1) ",
+      "WHEN regexp_full_match(%1$s, '[0-9]{3}[1-4]') ",
+      "THEN substr(%1$s, 1, 3) || '-' || substr(%1$s, 4, 1) ",
+      "WHEN regexp_full_match(%1$s, '[0-9]{1,3}') THEN lpad(%1$s, 3, '0') ",
+      "ELSE %1$s END"
+    ),
+    trimmed
+  )
+}
+
 #' SQL VALUES table of the codebook
 codebook_values_sql <- function(codebook) {
   rows <- base::sprintf(
@@ -244,6 +268,9 @@ trilliant_stage_sql <- function(schema_tbl, codebook) {
   rel <- trilliant_relations(schema_tbl)
   procedure_codes <- codebook$code[codebook$code_family == "procedure"]
   drg_codes <- codebook$code[codebook$code_family == "ms_drg"]
+  # APR-DRGs live only in other_code1/2, never in the typed ms_drg column:
+  # that column's name declares the grouper, and it is not this one.
+  apr_codes <- codebook$code[codebook$code_family == "apr_drg"]
   other_cols <- base::intersect(base::c("other_code1", "other_code2"), rel$details$columns)
 
   prefilter <- base::c(
@@ -253,7 +280,10 @@ trilliant_stage_sql <- function(schema_tbl, codebook) {
     base::unlist(base::lapply(other_cols, function(col) {
       base::c(
         base::sprintf("%s IN (%s)", sql_procedure_code(base::paste0("d.", col)), sql_string_list(procedure_codes)),
-        base::sprintf("%s IN (%s)", sql_drg_code(base::paste0("d.", col)), sql_string_list(drg_codes))
+        base::sprintf("%s IN (%s)", sql_drg_code(base::paste0("d.", col)), sql_string_list(drg_codes)),
+        if (base::length(apr_codes)) {
+          base::sprintf("%s IN (%s)", sql_apr_drg_code(base::paste0("d.", col)), sql_string_list(apr_codes))
+        }
       )
     }))
   )
@@ -291,6 +321,9 @@ trilliant_extract_sql <- function(schema_tbl, codebook, stage_path = NULL) {
 
   procedure_codes <- codebook$code[codebook$code_family == "procedure"]
   drg_codes <- codebook$code[codebook$code_family == "ms_drg"]
+  # APR-DRGs live only in other_code1/2, never in the typed ms_drg column:
+  # that column's name declares the grouper, and it is not this one.
+  apr_codes <- codebook$code[codebook$code_family == "apr_drg"]
   other_cols <- base::intersect(base::c("other_code1", "other_code2"), details$columns)
 
   prefilter <- base::c(
@@ -300,7 +333,10 @@ trilliant_extract_sql <- function(schema_tbl, codebook, stage_path = NULL) {
     base::unlist(base::lapply(other_cols, function(col) {
       base::c(
         base::sprintf("%s IN (%s)", sql_procedure_code(base::paste0("d.", col)), sql_string_list(procedure_codes)),
-        base::sprintf("%s IN (%s)", sql_drg_code(base::paste0("d.", col)), sql_string_list(drg_codes))
+        base::sprintf("%s IN (%s)", sql_drg_code(base::paste0("d.", col)), sql_string_list(drg_codes)),
+        if (base::length(apr_codes)) {
+          base::sprintf("%s IN (%s)", sql_apr_drg_code(base::paste0("d.", col)), sql_string_list(apr_codes))
+        }
       )
     }))
   )
@@ -313,19 +349,27 @@ trilliant_extract_sql <- function(schema_tbl, codebook, stage_path = NULL) {
       type_expr <- sql_normalized_type(base::paste0(col, "_type"))
       base::c(
         base::sprintf("SELECT row_key, 'procedure', %s, %s FROM filtered WHERE %s IS NOT NULL", sql_procedure_code(col), type_expr, col),
-        base::sprintf("SELECT row_key, 'ms_drg', %s, %s FROM filtered WHERE %s IS NOT NULL", sql_drg_code(col), type_expr, col)
+        base::sprintf("SELECT row_key, 'ms_drg', %s, %s FROM filtered WHERE %s IS NOT NULL", sql_drg_code(col), type_expr, col),
+        if (base::length(apr_codes)) {
+          base::sprintf("SELECT row_key, 'apr_drg', %s, %s FROM filtered WHERE %s IS NOT NULL", sql_apr_drg_code(col), type_expr, col)
+        }
       )
     }))
   )
 
   fit_sql <- base::sprintf(
     base::paste(
-      "CASE WHEN c.code_type IS NULL THEN 'unverified'",
+      # the APR arm comes first for the same reason as in code_type_fit():
+      # an untyped three-digit code is never an APR-DRG
+      "CASE WHEN c.code_family = 'apr_drg' AND c.code_type IN (%s) THEN 'verified'",
+      "WHEN c.code_family = 'apr_drg' THEN 'incompatible'",
+      "WHEN c.code_type IS NULL THEN 'unverified'",
       "WHEN c.code_family = 'procedure' AND c.code_type IN (%s) THEN 'verified'",
       "WHEN c.code_family = 'ms_drg' AND c.code_type IN (%s) THEN 'verified'",
       "WHEN c.code_family = 'ms_drg' AND c.code_type = 'DRG' THEN 'unverified'",
       "ELSE 'incompatible' END"
     ),
+    sql_string_list(apr_drg_code_types()),
     sql_string_list(procedure_code_types()),
     sql_string_list(drg_code_types())
   )
