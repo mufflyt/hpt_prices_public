@@ -19,3 +19,43 @@ testthat::test_that("the IPPS benchmark applies the labor share, wage index, cap
   testthat::expect_equal(got$wage_index_source, base::c("ipps_table_2", "state_rural"))
   testthat::expect_equal(base::nrow(benchmark), 4)
 })
+
+testthat::test_that("APR-DRG severity-1 prices fill in only where a hospital posts no MS-DRG price", {
+  prices <- tibble::tibble(
+    ccn = base::c("A", "A", "B", "B", "C", "C"),
+    code = base::c("807", "560-1", "560-1", "540-1", "807", "788"),
+    payer_type = "commercial",
+    price = base::c(9000, 6100, 5800, 8200, 9500, 13000)
+  )
+  out <- add_apr_drg_delivery_prices(prices)
+
+  # A posts MS-DRG 807 and an APR-DRG vaginal price: the MS-DRG one wins, the
+  # APR row is dropped rather than averaged in
+  a <- out[out$ccn == "A", ]
+  testthat::expect_equal(base::nrow(a), 1)
+  testthat::expect_equal(a$price, 9000)
+  testthat::expect_equal(a$price_source, "ms_drg")
+
+  # B posts only APR-DRG: both codes arrive, recoded to the MS-DRG anchors
+  b <- out[out$ccn == "B", ]
+  testthat::expect_setequal(b$code, base::c("807", "788"))
+  testthat::expect_equal(b$price[b$code == "788"], 8200)
+  testthat::expect_true(base::all(b$price_source == "apr_drg"))
+
+  # C is untouched
+  testthat::expect_setequal(out$code[out$ccn == "C"], base::c("807", "788"))
+  testthat::expect_true(base::all(out$price_source[out$ccn == "C"] == "ms_drg"))
+
+  # with no APR rows at all the frame is unchanged apart from the label
+  ms_only <- add_apr_drg_delivery_prices(prices[prices$code %in% base::c("807", "788"), ])
+  testthat::expect_equal(base::nrow(ms_only), 3)
+  testthat::expect_true(base::all(ms_only$price_source == "ms_drg"))
+})
+
+testthat::test_that("every APR-DRG anchor maps to a delivery DRG that is in the codebook", {
+  map <- apr_drg_anchor_map()
+  testthat::expect_setequal(base::unname(map), base::unname(birth_drg_anchors()))
+  codebook <- test_codebook(exclude_concepts = NULL)
+  testthat::expect_true(base::all(base::names(map) %in% codebook$code))
+  testthat::expect_true(base::all(base::unname(map) %in% codebook$code))
+})

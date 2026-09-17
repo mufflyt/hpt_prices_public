@@ -78,3 +78,5 @@ cesarean_cpt,59515,CPT,procedure,Cesarean delivery with postpartum care,TRUE,FAL
 cesarean_cpt,59618,CPT,procedure,Routine obstetric care with cesarean after attempted vaginal birth after cesarean (global),TRUE,FALSE
 cesarean_cpt,59620,CPT,procedure,"Cesarean after attempted vaginal birth after cesarean, delivery only",TRUE,FALSE
 cesarean_cpt,59622,CPT,procedure,Cesarean after attempted vaginal birth after cesarean with postpartum care,TRUE,FALSE
+apr_drg_vaginal_delivery,560-1,APR-DRG,apr_drg,"Vaginal delivery, APR-DRG severity 1 (uncomplicated)",TRUE,TRUE
+apr_drg_cesarean,540-1,APR-DRG,apr_drg,"Cesarean delivery, APR-DRG severity 1 (uncomplicated)",TRUE,TRUE

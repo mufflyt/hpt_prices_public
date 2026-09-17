@@ -26,6 +26,12 @@
 base::source("R/00_source_all.R")
 
 codes <- base::unname(birth_drg_anchors())
+# Coverage sensitivity, off by default: HPT_BIRTH_APR_DRG=true also reads the
+# APR-DRG severity-1 delivery codes and lets them stand in for the MS-DRG
+# anchor at hospitals that post no MS-DRG delivery price (apr_drg_anchor_map()
+# in R/birth_prices.R). The headline numbers stay MS-DRG only.
+use_apr_drg <- base::identical(base::Sys.getenv("HPT_BIRTH_APR_DRG"), "true")
+price_codes <- if (use_apr_drg) base::c(codes, base::names(apr_drg_anchor_map())) else codes
 payer_types <- base::c("commercial", "medicaid", "medicare_advantage", "self_pay_cash")
 min_hospitals <- 5L
 out_dir <- hpt_path("output")
@@ -53,7 +59,12 @@ benchmark <- hospital_ipps_benchmark(dplyr::distinct(hospitals, .data$ccn, .data
 # deliver babies either, and are absent from the CMS maternal file
 no_ld <- base::union(ld$ccn[ld$provides_ld %in% FALSE],
                      hospitals$ccn[hospitals$hospital_type %in% base::c("Psychiatric", "Rural Emergency Hospital")])
-all_prices <- ownership_hospital_prices(db_path, codes = codes, payer_types = payer_types, exclude_file_ids = exclude)
+all_prices <- ownership_hospital_prices(db_path, codes = price_codes, payer_types = payer_types, exclude_file_ids = exclude) |>
+  add_apr_drg_delivery_prices()
+if (use_apr_drg) {
+  n_apr <- dplyr::n_distinct(all_prices$ccn[all_prices$price_source == "apr_drg"])
+  base::message("APR-DRG fallback on: ", n_apr, " hospitals contribute a delivery price only as APR-DRG severity 1")
+}
 prices <- dplyr::filter(all_prices, !.data$ccn %in% no_ld)
 base::message("Delivery prices: ", dplyr::n_distinct(prices$ccn), " hospitals after dropping ",
               base::length(base::intersect(no_ld, all_prices$ccn)), " that do not deliver babies (CMS SM-7, psychiatric, REH)")

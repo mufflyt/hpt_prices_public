@@ -7,10 +7,34 @@ testthat::test_that("codebook loads with the expected concepts and no duplicates
       "colonoscopy", "emb", "iud_insertion", "iud_device",
       "vaginal_hysterectomy", "lavh", "drg_uterine_nonmalignant",
       "bariatric_surgery", "drg_bariatric", "surgical_pathology", "dc", "hysteroscopy_sampling", "office_visit_em",
-      "drg_cesarean", "drg_vaginal_delivery", "vaginal_delivery_cpt", "cesarean_cpt"
+      "drg_cesarean", "drg_vaginal_delivery", "vaginal_delivery_cpt", "cesarean_cpt",
+      "apr_drg_vaginal_delivery", "apr_drg_cesarean"
     )
   )
   testthat::expect_true(base::all(base::c("58100", "58300", "45378", "G0121", "742", "743", "43775", "43644", "619", "88305", "788", "807", "59400", "59510") %in% codebook$code))
+})
+
+testthat::test_that("APR-DRG codes normalize to base-severity and need an APR type", {
+  raw <- base::c("560-1", "560.1", "5601", "560 SOI 1", "APR-DRG 540-1", "60-2", "5609", "560")
+  expected <- base::c("560-1", "560-1", "560-1", "560-1", "540-1", "060-2", "5609", "560")
+  testthat::expect_equal(normalize_code(raw, "apr_drg"), expected)
+
+  # the SQL normalizer must agree with the R one, value for value
+  sql <- base::sprintf("SELECT %s AS code FROM (VALUES %s) AS t(raw)",
+                       sql_apr_drg_code("raw"),
+                       base::paste(base::sprintf("(%s)", sql_string(raw)), collapse = ", "))
+  db <- base::tempfile(fileext = ".duckdb")
+  from_sql <- duckdb_query(sql, database = db)
+  testthat::expect_equal(from_sql$code, expected)
+
+  # only a type that names the APR grouper matches; untyped never does
+  testthat::expect_equal(
+    code_type_fit(base::c("APR-DRG", "apr drg", "3M_APR_DRG", "MS-DRG", "DRG", NA), "apr_drg"),
+    base::c("verified", "verified", "verified", "incompatible", "incompatible", "incompatible")
+  )
+  # and an MS-DRG entry is unaffected by the new arm
+  testthat::expect_equal(code_type_fit(base::c("MS-DRG", "DRG", NA, "APR-DRG"), "ms_drg"),
+                         base::c("verified", "unverified", "unverified", "incompatible"))
 })
 
 testthat::test_that("normalize_code pads and strips DRGs but leaves CPT alone", {

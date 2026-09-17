@@ -24,6 +24,47 @@ birth_drg_anchors <- function() {
   base::c(cesarean = "788", vaginal = "807")
 }
 
+#' APR-DRG severity-1 delivery codes and the MS-DRG anchor each stands in for
+#'
+#' Some hospitals, mostly in states whose Medicaid programs pay by APR-DRG,
+#' post inpatient prices only as APR-DRGs, so they have no MS-DRG 807 or 788
+#' price at all and drop out of the delivery analysis entirely. APR-DRG 560
+#' and 540 are vaginal and cesarean delivery, and severity of illness 1 is the
+#' uncomplicated case, which is what MS-DRG 807 and 788 ("without CC/MCC")
+#' price. Severities 2-4 have no anchor here and are not collected.
+#'
+#' This is an approximation, not an identity: the two groupers assign cases
+#' differently, and the Medicare benchmark these prices are divided by is
+#' still the MS-DRG one. So it is a coverage sensitivity, reported apart from
+#' the headline, and every row it adds is labelled `price_source = "apr_drg"`.
+apr_drg_anchor_map <- function() {
+  base::c("560-1" = "807", "540-1" = "788")
+}
+
+#' Fall back to a hospital's APR-DRG severity-1 price where it posts no MS-DRG
+#'
+#' Never overwrites: a hospital with an MS-DRG price for a code and payer
+#' keeps it, and the APR-DRG row is dropped rather than averaged in.
+#'
+#' @param prices tibble(ccn, code, payer_type, price, ...) that may carry the
+#'   APR-DRG codes of `map`.
+#' @return the same columns plus `price_source` ("ms_drg" or "apr_drg"), with
+#'   APR-DRG rows recoded to the MS-DRG anchor they stand in for.
+add_apr_drg_delivery_prices <- function(prices, map = apr_drg_anchor_map()) {
+  ms <- prices |>
+    dplyr::filter(!.data$code %in% base::names(map)) |>
+    dplyr::mutate(price_source = "ms_drg")
+  apr <- prices |>
+    dplyr::filter(.data$code %in% base::names(map)) |>
+    dplyr::mutate(code = base::unname(map[.data$code]), price_source = "apr_drg")
+  if (base::nrow(apr) == 0L) return(ms)
+  dplyr::bind_rows(
+    ms,
+    dplyr::anti_join(apr, dplyr::distinct(ms, .data$ccn, .data$code, .data$payer_type),
+                     by = base::c("ccn", "code", "payer_type"))
+  )
+}
+
 ipps_drg_source <- function() {
   base::list(
     release = "FY 2026 IPPS final rule (CMS-1833-F), Tables 1A-1E and Table 5",
