@@ -92,6 +92,35 @@ testthat::test_that("interleave_by_host round-robins hosts and is a permutation"
   testthat::expect_equal(base::order(order_idx)[order_idx], base::seq_along(urls))
 })
 
+testthat::test_that("drive candidates are globbed, with a volume holding the data first", {
+  root <- base::file.path(base::tempdir(), base::paste0("vol_", base::as.integer(stats::runif(1, 1, 1e6))))
+  base::dir.create(base::file.path(root, "Samsung"), recursive = TRUE)        # stale, empty
+  base::dir.create(base::file.path(root, "Samsung 2", "hpt_prices"), recursive = TRUE)  # the real one
+  base::dir.create(base::file.path(root, "Samsung 3"), recursive = TRUE)      # stale, empty
+  withr::defer(base::unlink(root, recursive = TRUE))
+
+  found <- hpt_volume_candidates(base::file.path(root, "Samsung*"))
+  # every numbered mount macOS may create is found, not just a hardcoded pair
+  testthat::expect_length(found, 3)
+  # the one already holding hpt_prices is tried first
+  testthat::expect_equal(found[[1]], base::file.path(root, "Samsung 2"))
+})
+
+testthat::test_that("a stale folder on the boot disk is never used as the data drive", {
+  root <- base::file.path(base::tempdir(), base::paste0("stale_", base::as.integer(stats::runif(1, 1, 1e6))))
+  base::dir.create(base::file.path(root, "Samsung 1", "hpt_prices"), recursive = TRUE)
+  withr::defer(base::unlink(root, recursive = TRUE))
+  withr::local_envvar(HPT_DATA_DIR = NA)
+
+  real_candidates <- base::get("hpt_volume_candidates", envir = base::globalenv())
+  base::assign("hpt_volume_candidates", function(...) base::file.path(root, "Samsung 1"), envir = base::globalenv())
+  withr::defer(base::assign("hpt_volume_candidates", real_candidates, envir = base::globalenv()))
+
+  # it exists and even holds hpt_prices, but it is a directory on this disk,
+  # not a mount point, so it must be refused rather than filled
+  testthat::expect_error(hpt_default_data_dir(), "not mounted")
+})
+
 testthat::test_that("HPT_DATA_DIR overrides the drive default without checking the drive", {
   dir <- base::file.path(base::tempdir(), "hpt_override_check")
   withr::local_envvar(HPT_DATA_DIR = dir)
