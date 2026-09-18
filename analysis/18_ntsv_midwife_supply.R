@@ -26,8 +26,9 @@
 #' slope: never savings or value.
 #'
 #' Writes to HPT_DATA_DIR/output/ (never committed): ntsv_county_analysis.csv,
-#' ntsv_models.csv, ntsv_implied_facility_price_differential.csv, and
-#' ntsv_wonder_provenance.csv.
+#' ntsv_models.csv, ntsv_implied_facility_price_differential.csv,
+#' ntsv_wonder_provenance.csv, and figures/birth5_ntsv_county_map and
+#' figures/birth6_ntsv_supply_vs_rate.
 
 base::source("R/00_source_all.R")
 
@@ -227,6 +228,22 @@ implied <- implied_facility_price_differential(
   dplyr::mutate(contrast_units = contrast, contrast = "25th to 75th percentile of log2 midwives per 1,000 births",
                 share_local_differential = base::mean(differentials$source == "local"))
 write_csv_atomic(implied, base::file.path(out_dir, "ntsv_implied_facility_price_differential.csv"))
+
+# ---- figures ----------------------------------------------------------------------
+
+save_figure(
+  ntsv_county_map(
+    dplyr::select(outcome, "county_fips", "cesarean_rate"),
+    subtitle = base::sprintf("%s counties CDC WONDER reports, %s-%s.", base::format(base::nrow(outcome), big.mark = ","),
+                             2022, 2024)
+  ),
+  "birth5_ntsv_county_map", width = 10, height = 6.5
+)
+save_figure(
+  ntsv_supply_rate_plot(dplyr::filter(analysis, .data$roster_covered), slope_pp = primary$estimate_pp),
+  "birth6_ntsv_supply_vs_rate", width = 9, height = 6
+)
+base::message("Figures: ", fig_dir)
 base::print(implied)
 base::message("Implied facility price differential: arithmetic on the primary slope, annual NTSV births in WONDER-identified counties ",
               "the midwife roster covers; not savings or value.")
