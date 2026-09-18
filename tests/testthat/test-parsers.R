@@ -398,9 +398,14 @@ testthat::test_that("CSV lines split on quoting, not on commas", {
 testthat::test_that("MRF dates normalize across formats and refuse nonsense", {
   testthat::expect_equal(normalize_mrf_date(base::c("2026-01-02", "1/2/2026", "01-02-2026", "2026/01/02")),
                          base::rep("2026-01-02", 4))
-  # a two-digit year still parses; a pre-1990 result is left as written rather
-  # than turned into a date nobody meant
+  # A two-digit year must land in this century on every platform. Linux's %Y
+  # accepts "26" as year 26 where macOS refuses it, and the year guard used to
+  # be a STRING comparison against "1990" ("26" > "1990" is TRUE), so the same
+  # file dated 1/2/26 became "26-01-02" in CI and "2026-01-02" locally.
   testthat::expect_equal(normalize_mrf_date("1/2/26"), "2026-01-02")
+  # a year outside the plausible range is left as written rather than turned
+  # into a date nobody meant
+  testthat::expect_equal(normalize_mrf_date("1/2/1899"), "1/2/1899")
   testthat::expect_equal(normalize_mrf_date("not a date"), "not a date")
 })
 

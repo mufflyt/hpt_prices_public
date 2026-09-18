@@ -159,8 +159,29 @@ normalize_mrf_date <- function(x) {
       break
     }
 
+    # %y is tried only where the year really is two digits: "1/2/1899" fails
+    # %m/%d/%Y on the range check, and glibc's %y would then read its "18" and
+    # call it 2018.
+    candidates <- if (fmt == "%m/%d/%y") {
+      todo[stringr::str_detect(x[todo], "^[0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2}$")]
+    } else {
+      todo
+    }
+
+    if (base::length(candidates) == 0L) {
+      next
+    }
+
+    todo <- candidates
     parsed <- base::as.Date(x[todo], format = fmt)
-    ok <- !base::is.na(parsed) & base::format(parsed, "%Y") > "1990"
+    # The year is compared as a NUMBER against a plausible range. It used to be
+    # compared as text against "1990", where "26" > "1990" is TRUE because "2"
+    # sorts after "1": on Linux, where %Y accepts a two-digit year, "1/2/26"
+    # parsed as year 26 and passed that guard, so a hospital writing 1/2/26 got
+    # a last_updated_on of "26-01-02". macOS refused the two-digit year and fell
+    # through to %y, so the same file dated differently on the two platforms.
+    year <- base::suppressWarnings(base::as.integer(base::format(parsed, "%Y")))
+    ok <- !base::is.na(parsed) & !base::is.na(year) & year >= 1990L & year <= 2100L
     out[todo[ok]] <- base::format(parsed[ok], "%Y-%m-%d")
     done[todo[ok]] <- TRUE
   }
