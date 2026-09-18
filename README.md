@@ -88,6 +88,8 @@ signed link, then downloading, verifying, and extracting it on any machine with 
 | `tools/smoke_discovery.R` | Live, rate-limited smoke test of `cms-hpt.txt` discovery and the footer fallback |
 | `tools/smoke_ntsv.R` | Runs `analysis/18` end to end on synthetic CDC WONDER exports in a temporary data folder |
 | `tools/run_test_file.R` | Run one test file with the suite's setup |
+| `tools/post_extract_refresh.sh` | After a fresh extract: rebuild 09-17 in order, run the APR-DRG fallback, and report what moved |
+| `tools/refresh_impact.R` | Before/after table of the headline numbers, against a copy of `output/` |
 | `tools/export_public.sh` | Builds the public code copy ([hpt_prices_public](https://github.com/mufflyt/hpt_prices_public)): code, tests, config, tools, and the download guide, without figures, data-derived docs, or known answers; refuses to export if a known-answer value or file hash leaks |
 
 ## Pipeline
