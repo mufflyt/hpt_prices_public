@@ -374,3 +374,48 @@ testthat::test_that("coverage_report counts covered CCNs by state, type, and sys
   hca <- dplyr::filter(report$by_health_system, .data$health_sys_name %in% "HCA Healthcare")
   testthat::expect_equal(base::c(hca$n_ccn, hca$n_covered, hca$n_covered_incl_ambiguous), base::c(2L, 0L, 1L))
 })
+
+# ---- name, address and licence normalization ---------------------------------------
+
+testthat::test_that("hospital names normalize and drop the words every hospital shares", {
+  testthat::expect_equal(normalize_hospital_name("St. Mary's Hospital & Medical Center"), "ST MARY S HOSPITAL MEDICAL CENTER")
+  # the stop words are what make two unrelated hospitals look alike
+  testthat::expect_equal(hospital_name_tokens("The Medical Center of Aurora"), base::c("AURORA"))
+  testthat::expect_setequal(hospital_name_tokens("Denver Health Medical Center"), base::c("DENVER"))
+  # an empty or missing name yields no tokens, so two unknown names never match
+  testthat::expect_length(hospital_name_tokens(NA_character_), 0)
+  testthat::expect_length(hospital_name_tokens("   "), 0)
+})
+
+testthat::test_that("street addresses and cities normalize to their abbreviations", {
+  testthat::expect_equal(normalize_street_address("777 Bannock Street"), "777 BANNOCK ST")
+  testthat::expect_equal(normalize_street_address("1234 North Washington Avenue, Suite 200"),
+                         "1234 N WASHINGTON AVE STE 200")
+  testthat::expect_equal(normalize_city("Saint Louis"), "ST LOUIS")
+  testthat::expect_equal(normalize_city("Fort Collins"), "FT COLLINS")
+  testthat::expect_equal(normalize_city("Mount Pleasant"), "MT PLEASANT")
+})
+
+testthat::test_that("similarity reweights around whatever the file actually carries", {
+  # all three present: 0.5 name, 0.35 address, 0.15 city
+  testthat::expect_equal(combine_similarity(1, 1, 1), 1)
+  testthat::expect_equal(combine_similarity(1, 0, 0), 0.5)
+  # a missing address leaves the denominator, so a perfect name and city is 1,
+  # not 0.65 -- a file without an address must not be penalised for it
+  testthat::expect_equal(combine_similarity(1, NA, 1), 1)
+  testthat::expect_equal(combine_similarity(1, NA, 0), 0.5 / 0.65)
+  testthat::expect_equal(combine_similarity(0.8, NA, NA), 0.8)
+})
+
+testthat::test_that("NPI lists and licence keys are read the way the sources write them", {
+  testthat::expect_equal(parse_npi_list("1234567890;9876543210")[[1]], base::c("1234567890", "9876543210"))
+  testthat::expect_equal(parse_npi_list("NPI 1234567890 (primary)")[[1]], "1234567890")
+  # 9 and 11 digit runs are not NPIs and must not be half-matched
+  testthat::expect_length(parse_npi_list("123456789")[[1]], 0)
+  testthat::expect_length(parse_npi_list("12345678901")[[1]], 0)
+  testthat::expect_length(parse_npi_list(NA)[[1]], 0)
+
+  testthat::expect_equal(normalize_license_key(base::c("010-444", "0010444", "10444")), base::rep("10444", 3))
+  testthat::expect_true(base::is.na(normalize_license_key("")))
+  testthat::expect_true(base::is.na(normalize_license_key(NA_character_)))
+})

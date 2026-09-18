@@ -371,3 +371,105 @@ testthat::test_that("wide column names parse by position with spaced payer names
   testthat::expect_equal(parsed$plan_name, base::c("PPO Select", "PPO Select", "Gold", "MANAGED MEDICARE"))
   testthat::expect_equal(parsed$metric, base::c("negotiated_dollar", "median_amount", "estimated_amount", "negotiated_dollar"))
 })
+
+# ---- CSV MRF text handling ---------------------------------------------------------
+
+testthat::test_that("the charge-table header is found wherever the hospital hid it", {
+  # CMS lets the charge table start after the two general-data rows, and files
+  # pad that with blank or preamble lines
+  lines <- base::c("Hospital Name,Last Updated", "Denver Health,2026-01-02", "", "notes about this file",
+                   "description,code|1,code|1|type,payer_name", "COLONOSCOPY,45378,CPT,Aetna")
+  testthat::expect_equal(detect_hpt_charge_header(lines), 5L)
+
+  # a byte-order mark, upper case, and spaces around the pipe must not hide it
+  testthat::expect_equal(detect_hpt_charge_header(base::c("x", "﻿DESCRIPTION, CODE | 1 ,PAYER")), 2L)
+  # "description" first is enough even with no code column
+  testthat::expect_equal(detect_hpt_charge_header(base::c("junk", "description,setting,payer_name")), 2L)
+  # a file with no charge table fails loudly rather than guessing row 1
+  testthat::expect_error(detect_hpt_charge_header(base::c("a,b", "1,2")), "Could not find")
+})
+
+testthat::test_that("CSV lines split on quoting, not on commas", {
+  fields <- split_csv_line('"BIOPSY, ENDOMETRIAL",58100,"He said ""no""",')
+  testthat::expect_equal(fields[1:3], base::c("BIOPSY, ENDOMETRIAL", "58100", 'He said "no"'))
+  testthat::expect_length(split_csv_line("a,b,c"), 3)
+})
+
+testthat::test_that("MRF dates normalize across formats and refuse nonsense", {
+  testthat::expect_equal(normalize_mrf_date(base::c("2026-01-02", "1/2/2026", "01-02-2026", "2026/01/02")),
+                         base::rep("2026-01-02", 4))
+  # a two-digit year still parses; a pre-1990 result is left as written rather
+  # than turned into a date nobody meant
+  testthat::expect_equal(normalize_mrf_date("1/2/26"), "2026-01-02")
+  testthat::expect_equal(normalize_mrf_date("not a date"), "not a date")
+})
+
+testthat::test_that("multi-value fields split on pipe or semicolon, and NPIs are extracted", {
+  testthat::expect_equal(split_mrf_multi("a | b;c"), base::c("a", "b", "c"))
+  testthat::expect_equal(split_mrf_multi(NA_character_), base::character())
+  testthat::expect_equal(split_mrf_multi("   "), base::character())
+
+  testthat::expect_equal(format_type_2_npi(base::c("1234567890", "NPI: 1234567890", "9876543210")),
+                         "1234567890;9876543210")
+  # nothing NPI-shaped: the text is kept rather than dropped silently
+  testthat::expect_equal(format_type_2_npi(base::c("pending", NA)), "pending")
+  testthat::expect_true(base::is.na(format_type_2_npi(base::c(NA_character_, ""))))
+})
+
+testthat::test_that("blanks become NA, percentages parse, and notes combine in order", {
+  testthat::expect_equal(mrf_blank_to_na(base::c("x", "", "   ", NA)), base::c("x", NA, NA, NA))
+  testthat::expect_equal(parse_percentage(base::c("45%", "45", "")), base::c(45, 45, NA))
+  testthat::expect_equal(combine_mrf_notes("payer note", "generic note"), "payer note || generic note")
+  testthat::expect_equal(combine_mrf_notes(NA, "generic note"), "generic note")
+  testthat::expect_equal(combine_mrf_notes("payer note", ""), "payer note")
+  testthat::expect_true(base::is.na(combine_mrf_notes("", NA)))
+})
+
+testthat::test_that("UTF-16 and embedded nulls are decoded, not mangled", {
+  utf16 <- base::c(base::as.raw(base::c(0xff, 0xfe)), base::writeBin("hi", base::raw(), size = 1)[0],
+                   base::as.raw(base::c(0x68, 0x00, 0x69, 0x00)))
+  testthat::expect_equal(mrf_bytes_encoding(utf16), "utf-16le")
+  # the byte-order mark survives decoding as a character and is stripped later,
+  # by detect_hpt_charge_header(); decoding does not silently reshape the text
+  testthat::expect_equal(mrf_decode_bytes(utf16), "\ufeffhi")
+  testthat::expect_equal(detect_hpt_charge_header(base::c(base::paste0(mrf_decode_bytes(utf16), "description,code|1"))), 1L)
+
+  plain <- base::charToRaw("description,code|1")
+  testthat::expect_false(mrf_bytes_encoding(plain) %in% base::c("utf-16le", "utf-16be"))
+  testthat::expect_equal(mrf_decode_bytes(plain), "description,code|1")
+  # a stray null byte would end the string early in rawToChar
+  testthat::expect_equal(mrf_decode_bytes(base::c(base::charToRaw("ab"), base::as.raw(0), base::charToRaw("cd"))), "abcd")
+})
+
+# ---- JSON MRF helpers --------------------------------------------------------------
+
+testthat::test_that("the jq code lookup carries both families, with DRGs unpadded", {
+  codebook <- tibble::tibble(
+    code = base::c("45378", "58100", "0742", "788"),
+    code_family = base::c("procedure", "procedure", "ms_drg", "ms_drg")
+  )
+  lookup <- jsonlite::fromJSON(base::as.character(json_mrf_code_lookup(codebook)))
+  testthat::expect_setequal(base::names(lookup$procedure), base::c("45378", "58100"))
+  # jq sees the DRG as the file writes it, without our left padding
+  testthat::expect_setequal(base::names(lookup$drg), base::c("742", "788"))
+  testthat::expect_true(base::all(base::unlist(lookup$procedure)))
+
+  # a codebook with no DRGs yields an empty object, not a JSON array, so the
+  # jq program's lookup stays an object
+  only_cpt <- json_mrf_code_lookup(codebook[codebook$code_family == "procedure", ])
+  testthat::expect_match(base::as.character(only_cpt), '"drg":\\{\\}')
+})
+
+testthat::test_that("header values are read from a JSON prefix that stops mid-file", {
+  # the first bytes of a large MRF: the metadata is complete, the array is not
+  prefix <- '{"hospital_name": "Denver Health", "last_updated_on": "2026-01-02", "version": "3.0.0",
+              "hospital_address": ["777 Bannock St"], "standard_charge_information": [{"description": "COLON'
+  # values come back parsed, not as raw JSON text
+  testthat::expect_equal(json_prefix_value(prefix, "hospital_name"), "Denver Health")
+  testthat::expect_equal(json_prefix_value(prefix, "version"), "3.0.0")
+  testthat::expect_equal(json_prefix_value(prefix, "hospital_address", "array"), "777 Bannock St")
+  # a key the prefix never reached returns NULL: absent, not guessed and not NA
+  testthat::expect_null(json_prefix_value(prefix, "license_number"))
+  # the truncated charge array must not be read as a value
+  testthat::expect_null(json_prefix_value(prefix, "standard_charge_information", "array"))
+})
