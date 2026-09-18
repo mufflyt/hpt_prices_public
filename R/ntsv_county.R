@@ -222,11 +222,18 @@ state_fips_postal <- function() {
 
 #' ZCTA internal points in states the midwife roster does not cover
 #'
-#' The NPI-linked tracked roster holds 40 states (the midwifery repository's
-#' build_tracked_roster.R lists the others). Midwives sit at ZCTA internal
-#' points, so a catchment reaching any ZCTA in an uncovered state would count
-#' that state's midwives as zero; midwifery_supply_at() sets such a
-#' catchment's midwife count to NA instead.
+#' **This returns no rows on the current input, and that is the point.** The
+#' withdrawn 40-state roster made this load-bearing: a catchment reaching a
+#' ZCTA in one of the eleven missing states would have counted that state's
+#' midwives as zero, so midwifery_supply_at() set the whole catchment's
+#' midwife count to NA instead, and 189 of 1,546 hospitals dropped out. The
+#' national linkage freeze covers all 50 states and DC, so nothing is masked
+#' any more.
+#'
+#' The check is kept rather than deleted because it is what makes that claim
+#' checkable: if a future input covers less ground, this fills up again and
+#' the masking comes back on by itself, instead of silently counting real
+#' midwives as zero. `national_roster_coverage()` asserts the empty case.
 #'
 #' @param midwives load_midwife_roster() rows (with `state`).
 roster_uncovered_zctas <- function(zcta, zcta_county, midwives) {
@@ -236,6 +243,20 @@ roster_uncovered_zctas <- function(zcta, zcta_county, midwives) {
     dplyr::mutate(state = base::unname(state_fips_postal()[stringr::str_sub(.data$county_fips, 1, 2)])) |>
     dplyr::filter(!base::is.na(.data$state), !.data$state %in% covered) |>
     dplyr::select("zip", "state", "lat", "lon")
+}
+
+#' States of the 50 and DC with no midwife in the roster
+#'
+#' Returns the missing postal codes, empty when coverage is national. `strict`
+#' turns that into an error, so a partial roster stops a run rather than
+#' quietly reinstating the NA masking that this analysis no longer applies.
+national_roster_coverage <- function(midwives, strict = FALSE) {
+  missing <- base::setdiff(base::c(datasets::state.abb, "DC"), base::unique(stats::na.omit(midwives$state)))
+  if (strict && base::length(missing)) {
+    base::stop("The midwife roster covers ", 51L - base::length(missing), " of 50 states plus DC; missing ",
+               base::paste(missing, collapse = ", "), ".")
+  }
+  missing
 }
 
 county_population_center_source <- function() {

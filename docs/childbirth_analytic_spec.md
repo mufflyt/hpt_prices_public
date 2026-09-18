@@ -12,8 +12,8 @@ as an accounting translation.
 ## 1. Primary exposure
 
 **Midwife supply per 1,000 births.** The numerator is active AMCB-certified
-midwives (CNM and CM) from the NPI-linked roster
-(`tracked_roster_active_primary_linked.csv`), placed at their NPPES practice
+midwives (CNM and CM) from the national AMCB-NPI linkage freeze
+(`amcb_npi_linkage_FROZEN.csv`), placed at their NPPES practice
 ZIP. The count covers midwives within 30 miles of the county's 2020 Census
 center of population. The denominator is NVSS resident births of the counties
 whose centers lie in the same catchment. The model uses
@@ -21,11 +21,15 @@ log2(midwives per 1,000 births + 0.5), as in `analysis/17`. Sensitivity radii ar
 a CABC-accredited birth center within 30 miles, and distance to the nearest
 one.
 
-**Roster coverage.** The NPI-linked tracked roster covers 40 states. It
-leaves out AK, DC, DE, HI, ND, NJ, RI, SD, VT, WV, and WY. A catchment that
-reaches any ZIP (ZCTA) in those states would count their midwives as zero, so
-its exposure is set to missing instead (`roster_uncovered_zctas()`). The
-national linkage freeze would remove this restriction.
+**Roster coverage.** The linkage freeze covers all 50 states and DC (12,170
+midwives, against 11,093 over 40 states in the roster it replaced), so no
+catchment is set to missing any more. The 40-state roster left out AK, DC, DE,
+HI, ND, NJ, RI, SD, VT, WV and WY, and a catchment reaching any ZIP (ZCTA) in
+them had its exposure dropped rather than count those midwives as zero. That
+check (`roster_uncovered_zctas()`) still runs and must now come back empty;
+`national_roster_coverage(strict = TRUE)` stops the run if a future input
+covers less ground. The freeze is verified against the sha256 in its tracked
+manifest, so a stale copy under the same name cannot be read by mistake.
 
 **Excluded as an exposure: the CNM-attended share of births.** Birth
 certificates name the delivering attendant, and cesareans are attended by
@@ -223,9 +227,13 @@ cell anywhere from 1 to 9 would shift it by more than 1 percentage point.
    already loaded, not from NPPES.
 5. **Race and Hispanic origin.** WONDER has no combined race and Hispanic
    variable, so the export groups by both.
-6. **Roster coverage.** Catchments that reach the 11 jurisdictions missing
-   from the roster get a missing exposure. The state model uses only the
-   covered states.
+6. **Roster coverage, then withdrawn.** Catchments reaching the 11
+   jurisdictions missing from the 40-state roster got a missing exposure, and
+   the state model used only the covered states. Superseded on 2026-09-18: the
+   national linkage freeze was on the machine all along, verified against its
+   tracked manifest, so nothing is masked now. It is not a pure addition. The
+   freeze also holds 294 more midwives in states the roster already covered,
+   which moves the exposure for 730 hospitals that were never excluded.
 7. **Payer split of the price arithmetic.** The commercial differential
    applies to privately insured NTSV births and the Medicaid differential to
    Medicaid births. The arithmetic covers only counties with a measured

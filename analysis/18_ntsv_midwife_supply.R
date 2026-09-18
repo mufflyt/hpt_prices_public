@@ -122,10 +122,12 @@ birth_counties <- county_inputs |>
   dplyr::mutate(lat = dplyr::coalesce(.data$c_lat, .data$lat), lon = dplyr::coalesce(.data$c_lon, .data$lon)) |>
   dplyr::select("county_fips", "lat", "lon", "births", "obgyn")
 roster <- load_midwife_roster()
+national_roster_coverage(roster, strict = TRUE)
 midwives <- located(roster)
 uncovered <- roster_uncovered_zctas(zcta, zcta_county, roster)
-base::message("Midwife roster covers ", base::length(base::unique(roster$state)), " states; uncovered: ",
-              base::paste(base::sort(base::unique(uncovered$state)), collapse = ", "))
+base::message("Midwife roster: ", base::nrow(roster), " active midwives across ",
+              base::length(base::unique(roster$state)), " states and territories, all 50 and DC covered; ",
+              base::nrow(uncovered), " ZCTAs in uncovered states (expected 0)")
 birth_centers <- located(dplyr::filter(load_birth_centers(), !base::is.na(.data$zip)))
 hospitals <- duckdb_query("SELECT ccn, zip_code AS zip, state FROM dim_hospital", database = db_path, read_only = TRUE) |>
   dplyr::mutate(zip = stringr::str_sub(stringr::str_pad(.data$zip, 5, pad = "0"), 1, 5))
@@ -193,7 +195,9 @@ quasi <- fit_ntsv_quasibinomial(analysis, rhs("log2_cnm"), "log2_cnm") |>
   dplyr::transmute(model = "quasi-binomial (CR1, state)", .data$term, estimate_pp = .data$ame_pp, log_odds = .data$log_odds,
                    log_odds_ci_low = .data$ci_low, log_odds_ci_high = .data$ci_high, .data$p_value, .data$n_units, .data$n_states)
 
-# state of residence: complete coverage, no fixed effects, each state its own cluster
+# state of residence: complete coverage, no fixed effects, each state its own cluster.
+# The roster filter below was what kept the eleven uncovered states out of this
+# model; with the national freeze it drops nothing and is kept only as a guard.
 state_rates <- ntsv_cesarean_rates(ex$state)
 state_supply <- midwives |>
   dplyr::left_join(zcta_county, by = "zip") |>

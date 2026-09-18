@@ -187,6 +187,68 @@ testthat::test_that("catchments reaching a state the roster does not cover get n
   testthat::expect_equal(s$cnm_within[s$id == "lancaster"], 0)
 })
 
+testthat::test_that("national_roster_coverage names the missing states and can stop the run", {
+  partial <- tibble::tibble(npi = base::as.character(1:3), zip = "19103",
+                            state = base::c("PA", "NJ", "DE"), certification = "CNM")
+  missing <- national_roster_coverage(partial)
+  testthat::expect_true(base::all(base::c("CA", "WY", "DC") %in% missing))
+  testthat::expect_false(base::any(base::c("PA", "NJ", "DE") %in% missing))
+  testthat::expect_error(national_roster_coverage(partial, strict = TRUE), "covers 3 of 50 states plus DC")
+
+  national <- tibble::tibble(npi = base::as.character(base::seq_len(51)), zip = "19103",
+                             state = base::c(datasets::state.abb, "DC"), certification = "CNM")
+  testthat::expect_length(national_roster_coverage(national), 0L)
+  testthat::expect_silent(national_roster_coverage(national, strict = TRUE))
+  # the masking machinery is still present, but finds nothing left to mask
+  zcta <- tibble::tibble(zip = "19103", lat = 39.9526, lon = -75.1652)
+  zcta_county <- tibble::tibble(zip = "19103", county_fips = "42101")
+  testthat::expect_equal(base::nrow(roster_uncovered_zctas(zcta, zcta_county, national)), 0L)
+})
+
+testthat::test_that("load_midwife_roster keeps only active midwifery-taxonomy cohort members", {
+  freeze <- tibble::tribble(
+    ~npi,         ~status,   ~npi_tax_class, ~cohort_member, ~nppes_zip,   ~nppes_state, ~certification,
+    "1000000001", "ACTIVE",  "midwife",      "TRUE",         "19103-1234", "PA",         "CNM",
+    "1000000002", "ACTIVE",  "midwife",      "TRUE",         "82001",      "WY",         "CM",
+    "1000000003", "LAPSED",  "midwife",      "TRUE",         "19104",      "PA",         "CNM",
+    "1000000004", "RETIRED", "midwife",      "TRUE",         "19105",      "PA",         "CNM",
+    "1000000005", "ACTIVE",  "nursing",      "TRUE",         "19106",      "PA",         "CNM",
+    "1000000006", "ACTIVE",  "midwife",      "FALSE",        "19107",      "PA",         "CNM",
+    "1000000001", "ACTIVE",  "midwife",      "TRUE",         "19103-9999", "PA",         "CNM"
+  )
+  path <- base::tempfile(fileext = ".csv")
+  readr::write_csv(freeze, path)
+  roster <- load_midwife_roster(path, verify_sha256 = FALSE)
+
+  # lapsed, retired, the nursing sensitivity arm, non-members and the duplicate NPI all go
+  testthat::expect_equal(roster$npi, base::c("1000000001", "1000000002"))
+  testthat::expect_equal(roster$zip, base::c("19103", "82001"))
+  testthat::expect_setequal(roster$state, base::c("PA", "WY"))
+})
+
+testthat::test_that("load_midwife_roster refuses a freeze the tracked manifest does not describe", {
+  freeze <- tibble::tibble(npi = "1000000001", status = "ACTIVE", npi_tax_class = "midwife",
+                           cohort_member = "TRUE", nppes_zip = "19103", nppes_state = "PA", certification = "CNM")
+  path <- base::tempfile(fileext = ".csv")
+  readr::write_csv(freeze, path)
+  # the helpers are sourced into the global environment, so swap and restore
+  original <- midwife_freeze_manifest_sha256
+  base::on.exit(base::assign("midwife_freeze_manifest_sha256", original, envir = base::globalenv()), add = TRUE)
+
+  base::assign("midwife_freeze_manifest_sha256",
+               function(...) base::strrep("0", 64L), envir = base::globalenv())
+  testthat::expect_error(load_midwife_roster(path), "not the one the tracked manifest describes")
+
+  # and reads it once the manifest agrees
+  base::assign("midwife_freeze_manifest_sha256",
+               function(...) sha256_file(path), envir = base::globalenv())
+  testthat::expect_equal(base::nrow(load_midwife_roster(path)), 1L)
+
+  # a missing manifest is not an error: it just means there is nothing to check against
+  base::assign("midwife_freeze_manifest_sha256", function(...) NA_character_, envir = base::globalenv())
+  testthat::expect_equal(base::nrow(load_midwife_roster(path)), 1L)
+})
+
 testthat::test_that("state FIPS codes map to USPS abbreviations", {
   m <- state_fips_postal()
   testthat::expect_length(m, 52)
