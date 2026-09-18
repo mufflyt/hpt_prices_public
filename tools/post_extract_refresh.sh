@@ -28,9 +28,12 @@ log_dir="${HPT_REFRESH_LOGS:-/tmp/hpt_refresh_$(date +%Y%m%d_%H%M%S)}"
 mkdir -p "$log_dir"
 export HPT_DUCKDB_MEMORY="${HPT_DUCKDB_MEMORY:-3GB}"
 
+# Validation runs LAST, as docs/appendix.md section L says: it compares the
+# saved medians against the database, so running it before 11 rebuilt them
+# reported "49,461 saved rows vs 49,773 recomputed" -- a warning about the
+# runbook's own order, not about the data.
 stages=(
   09_build_database
-  10_validate
   11_state_medians
   12_addon_value
   13_ownership_prices
@@ -38,6 +41,7 @@ stages=(
   15_geographic_figures
   16_childbirth_prices
   17_midwifery_presence
+  10_validate
 )
 
 echo "Refreshing after the extract. Logs: $log_dir"
@@ -51,7 +55,7 @@ for stage in "${stages[@]}"; do
     failed+=("$stage")
     # 10 is a report, not a gate: a validation warning must not stop the refresh.
     # Anything else feeds the stages after it, so stop rather than mix builds.
-    [ "$stage" = "10_validate" ] || break
+    [ "$stage" = "10_validate" ] || break   # 10 runs last, so nothing depends on it
   fi
 done
 
@@ -60,12 +64,18 @@ if [ ${#failed[@]} -gt 0 ]; then
 fi
 
 # The childbirth analysis is also run WITH the APR-DRG fallback, which is the
-# measurement the extract was rerun for. Its outputs overwrite 16's, so it runs
-# last and the baseline above is what the documents quote.
+# measurement the extract was rerun for. It writes birth_apr_* files, so the
+# MS-DRG build above stays intact and the two can be compared directly. They
+# used to share filenames, and then whichever run went last owned output/: an
+# impact table compared an MS-DRG "before" against an APR-DRG "after" and
+# reported a 14% fall in the Medicaid delivery price that was really 347 extra
+# hospitals. Stages 17 and 18 read the unprefixed names, so they always see the
+# MS-DRG build rather than whatever ran last.
 if [ -z "${HPT_SKIP_APR:-}" ]; then
   echo "APR-DRG fallback run (counts the hospitals it adds):"
   if HPT_BIRTH_APR_DRG=true Rscript analysis/16_childbirth_prices.R > "$log_dir/16_apr_drg.log" 2>&1; then
     grep -i "APR-DRG fallback" "$log_dir/16_apr_drg.log" || echo "  (no APR-DRG rows found in the extract)"
+    echo "  MS-DRG build: output/birth_*.csv | fallback build: output/birth_apr_*.csv"
   else
     echo "  FAILED (see $log_dir/16_apr_drg.log)"
   fi
