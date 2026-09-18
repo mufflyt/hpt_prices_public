@@ -606,7 +606,14 @@ addon_tornado_labels <- function(tornado, params) {
   }
   range <- base::paste(fmt(tornado$low_input, unit), "to", fmt(tornado$high_input, unit))
   range[unit == "USD_iqr"] <- base::paste0(range[unit == "USD_iqr"], ", hospital IQR")
-  base::paste0(short, " (", range, ")")
+
+  # A provisional parameter has no defensible direct source, and the widest
+  # bar on this figure is one: the device's paid share swings the net value by
+  # $2,109 and is the range that flips its sign. A reader should not have to
+  # open the parameter file to learn that, so the label carries a dagger.
+  provisional <- stats::setNames(params$provisional, params$parameter)
+  is_provisional <- base::unname(provisional[tornado$parameter]) %in% TRUE
+  base::paste0(short, base::ifelse(is_provisional, " \u2020", ""), " (", range, ")")
 }
 
 #' Short labels for the parameters a case's net value depends on

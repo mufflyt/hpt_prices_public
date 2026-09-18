@@ -842,6 +842,21 @@ min_treated_clusters <- function() {
   5L
 }
 
+#' Fewest hospitals a group may hold before its estimate is exploratory
+#'
+#' The cluster rule above asks how many health SYSTEMS a group spans, which is
+#' what the inference depends on. It says nothing about how many hospitals
+#' carry the price. An audit on 2026-09-18 found six estimates drawn from 8 or
+#' 9 hospitals across 5 systems -- clearing the cluster bar and reported like
+#' any other row -- including a +108% Medicaid difference for 58100. A reader
+#' scanning the results file could not tell those from a group of 300.
+#'
+#' A group with fewer than 10 hospitals is now exploratory too, whatever its
+#' cluster count. Like the cluster threshold, the number is a judgement.
+min_treated_hospitals <- function() {
+  10L
+}
+
 #' Codes traditional Medicare does not pay for, so Medicare and Medicare
 #' Advantage rates for them are hospital-listed numbers, not payments
 #' (58300: OPPS status E1, PFS status N; MA follows Medicare coverage)
@@ -979,6 +994,7 @@ ownership_forest_series <- function() {
 #'   the cell has fewer than `min_pe_flag` PE hospitals, `few_pe_clusters`
 #'   TRUE when they come from fewer than `min_pe_clusters` clusters,
 #'   `exploratory` TRUE for any group drawn from fewer than
+#'   [min_treated_hospitals()] hospitals, or from fewer than
 #'   min_treated_clusters() clusters (point estimate only), and
 #'   `payment_comparison` FALSE for Medicare and Medicare Advantage rates of
 #'   codes Medicare does not cover (medicare_noncovered_codes()).
@@ -1006,13 +1022,27 @@ ownership_models <- function(frame, definitions = pe_definitions()$definition,
     ) |>
     dplyr::ungroup() |>
     dplyr::mutate(
-      exploratory = !base::is.na(.data$estimate) & .data$n_group_clusters < min_treated_clusters(),
+      exploratory = !base::is.na(.data$estimate) &
+        (.data$n_group_clusters < min_treated_clusters() | .data$n_group < min_treated_hospitals()),
       payment_comparison = !(.data$code %in% medicare_noncovered_codes() & .data$payer_type %in% base::c("medicare", "medicare_advantage")),
       note = dplyr::case_when(
         !.data$payment_comparison ~ dplyr::if_else(base::is.na(.data$note), "", base::paste0(.data$note, "; ")) |>
           base::paste0("not a payment comparison: Medicare does not cover this code, so Medicare Advantage rates are hospital-listed numbers"),
+        # say WHICH bar the group failed, since the two mean different things:
+        # too few systems is an inference problem, too few hospitals is a
+        # thin-evidence problem, and a group can fail both
         .data$exploratory ~ dplyr::if_else(base::is.na(.data$note), "", base::paste0(.data$note, "; ")) |>
-          base::paste0("exploratory: fewer than ", min_treated_clusters(), " health-system clusters in the group"),
+          base::paste0(
+            "exploratory: ",
+            dplyr::case_when(
+              .data$n_group_clusters < min_treated_clusters() & .data$n_group < min_treated_hospitals() ~
+                base::paste0("fewer than ", min_treated_clusters(), " health-system clusters and fewer than ",
+                             min_treated_hospitals(), " hospitals in the group"),
+              .data$n_group_clusters < min_treated_clusters() ~
+                base::paste0("fewer than ", min_treated_clusters(), " health-system clusters in the group"),
+              TRUE ~ base::paste0("fewer than ", min_treated_hospitals(), " hospitals in the group")
+            )
+          ),
         TRUE ~ .data$note
       )
     ) |>
