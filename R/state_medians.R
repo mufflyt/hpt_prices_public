@@ -63,8 +63,20 @@ rate_row_filter_sql <- function() {
     "AND NOT (CAST(concept AS VARCHAR) IN (", sql_string_list(outpatient_concepts()), ") ",
     "AND (setting = 'inpatient' OR case_line)) ",
     "AND NOT (CAST(concept AS VARCHAR) IN (", sql_string_list(office_procedure_concepts()), ") ",
-    "AND methodology IN ('case rate', 'per diem'))"
+    "AND methodology IN ('case rate', 'per diem')) ",
+    # A per-diem APR-DRG rate is a price per DAY that cannot be turned into a
+    # stay price: the per-diem conversion multiplies by the DRG's geometric
+    # mean length of stay, and CMS publishes that for MS-DRGs only (Table 5).
+    # MS-DRG per-diem rows convert at 94.7%; APR-DRG rows convert at 0%, so
+    # leaving them in compares a day against a stay.
+    "AND NOT (CAST(concept AS VARCHAR) IN (", sql_string_list(apr_drg_concepts()), ") ",
+    "AND methodology = 'per diem')"
   )
+}
+
+#' Concepts carrying APR-DRG codes, which have no CMS length of stay
+apr_drg_concepts <- function() {
+  base::c("apr_drg_vaginal_delivery", "apr_drg_cesarean")
 }
 
 state_medians_sql <- function(exclude_file_ids = NULL) {
