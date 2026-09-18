@@ -239,6 +239,10 @@ if (base::nrow(tornado_plot) > 0L) {
       caption = base::paste(
         "Primary prices: MS-DRG 621 (IUD at bariatric surgery) and CPT 45378 (EMB at colonoscopy).",
         "Rates are HPT negotiated facility rates used as a payment proxy; price rows move to the interhospital 25th and 75th percentiles.",
+        base::sprintf(
+          "\u2020 provisional: no defensible direct source (%s of the parameters drawn here). The widest bar is one of them.",
+          base::sum(tornado_plot$provisional %in% TRUE)
+        ),
         sep = "\n"
       )
     ) +

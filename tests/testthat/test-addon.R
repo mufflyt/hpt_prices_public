@@ -224,8 +224,9 @@ testthat::test_that("tornado varies each used parameter one at a time", {
   testthat::expect_false(base::any(base::grepl("_", labels)))              # no code names left
   added <- labels[tornado$parameter == "combined_emb_added_minutes"]
   testthat::expect_equal(added, "Added room time for the EMB (1 min to 12 min)")
+  # utilization_A is provisional, so its label carries the dagger
   testthat::expect_equal(labels[tornado$variant == "sleeve_cpt_mirena" & tornado$parameter == "utilization_A"],
-                         "Chance added minutes displace a bariatric case (0% to 75%)")
+                         "Chance added minutes displace a bariatric case \u2020 (0% to 75%)")
   testthat::expect_match(labels[tornado$variant == "diagnostic_45378" & tornado$parameter == "R_P (hospital IQR)"],
                          "^Colonoscopy negotiated rate \\(\\$1,600 to \\$2,400, hospital IQR\\)$")
 })
@@ -266,4 +267,24 @@ testthat::test_that("payer view counts the avoided office encounter", {
     values[["office_iud_insertion_professional_payment"]] + values[["iud_acquisition_cost_J7298"]] + values[["office_visit_em_cost"]]
   )
   testthat::expect_equal(a$patient_delay_days_per_addon, a$displaced_primary_per_100_addons / 100 * values[["delay_days_per_displaced_case_A"]])
+})
+
+testthat::test_that("a provisional parameter is marked on its tornado label", {
+  params <- tibble::tibble(
+    parameter = base::c("pay_frac_A_item", "iud_acquisition_cost_J7297"),
+    unit = base::c("share", "USD_per_device"),
+    provisional = base::c(TRUE, FALSE)
+  )
+  tornado <- tibble::tibble(
+    parameter = params$parameter, case = "A",
+    low_input = base::c(0, 800), high_input = base::c(0.5, 1000), swing = base::c(2109, 300)
+  )
+
+  labels <- addon_tornado_labels(tornado, params)
+  # the dagger marks the parameter with no defensible direct source
+  testthat::expect_true(stringr::str_detect(labels[[1]], "†"))
+  testthat::expect_false(stringr::str_detect(labels[[2]], "†"))
+  # and the range is still spelled out in the parameter's own unit
+  testthat::expect_true(stringr::str_detect(labels[[1]], "0% to 50%"))
+  testthat::expect_true(stringr::str_detect(labels[[2]], "\\$800 to \\$1,000"))
 })

@@ -489,6 +489,22 @@ testthat::test_that("few treated clusters are exploratory and non-covered Medica
   pe_few <- dplyr::filter(few, .data$term == "pe")
   testthat::expect_true(pe_few$exploratory)                        # 3 systems < min_treated_clusters()
   testthat::expect_match(pe_few$note, "exploratory")
+  # this group fails both bars, and the note says so
+  testthat::expect_match(pe_few$note, "health-system clusters and fewer than 10 hospitals")
+
+  # enough systems, too few hospitals: 8 PE hospitals, each its own system.
+  # The cluster bar passes and the group is still thin evidence, which is the
+  # case an audit found reported like any other row (+108% from 8 hospitals).
+  thin <- synthetic_frame(n_pe = 8L)
+  pe_rows <- thin$ownership_group_cms_flag == "pe"
+  thin$cluster_id[pe_rows] <- base::paste0("pesys", base::seq_len(base::sum(pe_rows)))
+  thin_fit <- ownership_models(thin, definitions = "cms_flag", engine = "sandwich", wcr_series = series, B = 199L)
+  pe_thin <- dplyr::filter(thin_fit, .data$term == "pe")
+  testthat::expect_equal(pe_thin$n_group, 8L)
+  testthat::expect_gte(pe_thin$n_group_clusters, min_treated_clusters())
+  testthat::expect_true(pe_thin$exploratory)
+  testthat::expect_match(pe_thin$note, "fewer than 10 hospitals")
+  testthat::expect_false(base::grepl("health-system clusters", pe_thin$note))
 
   iud_ma <- synthetic_frame() |> dplyr::mutate(code = "58300", payer_type = "medicare_advantage")
   flagged <- ownership_models(iud_ma, definitions = "cms_flag", engine = "sandwich", wcr_series = series, B = 199L)
