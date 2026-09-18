@@ -260,8 +260,12 @@ trilliant_facility_cte <- function(rel) {
 #' file. A filter plus a small hash join, so memory stays bounded however
 #' large the lake is; the heavier matching and de-duplication then run on
 #' this much smaller staged table.
-trilliant_stage_sql <- function(schema_tbl, codebook) {
+#' @param details_relation SQL relation to read charge lines from, replacing
+#'   the lake table. The batched stage passes a `read_parquet([...])` over one
+#'   batch of the table's own data files; everything else is unchanged.
+trilliant_stage_sql <- function(schema_tbl, codebook, details_relation = NULL) {
   rel <- trilliant_relations(schema_tbl)
+  details_relation <- details_relation %||% rel$details$relation
   procedure_codes <- codebook$code[codebook$code_family == "procedure"]
   drg_codes <- codebook$code[codebook$code_family == "ms_drg"]
   # APR-DRGs live only in other_code1/2, never in the typed ms_drg column:
@@ -293,10 +297,91 @@ trilliant_stage_sql <- function(schema_tbl, codebook) {
     ")\n",
     "SELECT r.mrf_file_id, r.mrf_url AS f_mrf_url, r.file_version AS f_version,\n",
     "       r.last_updated_on AS f_last_updated_on, r.retrieved_at AS f_retrieved_at, d.* EXCLUDE (", rel$key, ")\n",
-    "FROM ", rel$details$relation, " AS d\n",
+    "FROM ", details_relation, " AS d\n",
     "JOIN rep AS r ON d.\"", rel$key, "\" = r.fkey\n",
     "WHERE ", base::paste(prefilter, collapse = "\n   OR ")
   )
+}
+
+
+# ---- resumable stage 1 ------------------------------------------------------------
+
+#' The parquet files behind one DuckLake table, when reading them is complete
+#'
+#' A DuckLake table is a set of parquet files listed in `ducklake_data_file`,
+#' plus two things that would make reading those files alone WRONG: delete
+#' files (rows logically removed) and inlined data (small rows kept in the
+#' metadata database rather than in parquet). This returns NULL rather than a
+#' partial answer when either exists, and the caller falls back to scanning the
+#' table through DuckLake itself.
+#'
+#' Reading the files directly is what makes stage 1 resumable: the scan can
+#' stop after any file and pick up there, instead of losing hours of work.
+#'
+#' @param lake_dir the unzipped lake directory (holding metadata.ducklake).
+#' @param table_name the DuckLake table, e.g. "standard_charge_details".
+#' @return tibble(data_file_id, path, n_rows, bytes) ordered by id, or NULL.
+trilliant_lake_data_files <- function(lake_dir, table_name) {
+  metadata <- base::file.path(lake_dir, "metadata.ducklake")
+  if (!base::file.exists(metadata)) return(NULL)
+
+  ask <- function(sql) base::tryCatch(duckdb_query(sql, database = metadata, read_only = TRUE), error = function(e) NULL)
+
+  ids <- ask(base::sprintf("SELECT table_id FROM ducklake_table WHERE table_name = %s", sql_string(table_name)))
+  if (base::is.null(ids) || base::nrow(ids) != 1L) return(NULL)
+  table_id <- ids$table_id[[1]]
+
+  deletes <- ask(base::sprintf("SELECT count(*) AS n FROM ducklake_delete_file WHERE table_id = %s", table_id))
+  if (base::is.null(deletes) || deletes$n[[1]] > 0) return(NULL)
+
+  # DuckLake registers an inlined-data table for EVERY table, empty or not, so
+  # the question is whether that table holds rows, not whether it is named.
+  inlined_name <- ask(base::sprintf(
+    "SELECT table_name FROM ducklake_inlined_data_tables WHERE table_id = %s", table_id))
+  if (!base::is.null(inlined_name) && base::nrow(inlined_name) > 0L) {
+    for (nm in inlined_name$table_name) {
+      rows <- ask(base::sprintf("SELECT count(*) AS n FROM %s", nm))
+      if (base::is.null(rows) || rows$n[[1]] > 0) return(NULL)
+    }
+  }
+
+  files <- ask(base::sprintf(
+    base::paste0(
+      "SELECT f.data_file_id, f.path, f.path_is_relative, f.record_count AS n_rows, f.file_size_bytes AS bytes ",
+      "FROM ducklake_data_file f JOIN ducklake_table t USING (table_id) ",
+      "WHERE t.table_name = %s ORDER BY f.data_file_id"
+    ), sql_string(table_name)))
+  if (base::is.null(files) || base::nrow(files) == 0L) return(NULL)
+
+  absolute <- base::ifelse(
+    files$path_is_relative %in% base::c(TRUE, "true", 1L),
+    base::file.path(lake_dir, "data", "main", table_name, files$path),
+    files$path
+  )
+  if (!base::all(base::file.exists(absolute))) return(NULL)
+
+  tibble::tibble(data_file_id = files$data_file_id, path = absolute,
+                 n_rows = base::as.numeric(files$n_rows), bytes = base::as.numeric(files$bytes))
+}
+
+#' Which stage batches are already written, from the manifest
+#'
+#' The manifest is appended only after a batch's parquet part is closed, so a
+#' part interrupted mid-write is simply redone: its name is derived from the
+#' batch's first data file, so the rerun overwrites it.
+read_stage_manifest <- function(manifest_path) {
+  if (!base::file.exists(manifest_path)) {
+    return(tibble::tibble(part = base::character(), data_file_id = base::numeric(),
+                          n_rows = base::numeric(), written_at = base::character()))
+  }
+  readr::read_csv(manifest_path, col_types = readr::cols(.default = readr::col_character()), show_col_types = FALSE) |>
+    dplyr::mutate(data_file_id = base::as.numeric(.data$data_file_id), n_rows = base::as.numeric(.data$n_rows))
+}
+
+#' Split data files into batches that each become one stage part
+stage_file_batches <- function(files, batch_size) {
+  batch_size <- base::max(1L, base::as.integer(batch_size))
+  base::split(files, base::ceiling(base::seq_len(base::nrow(files)) / batch_size))
 }
 
 #' Build the extraction SQL
@@ -436,6 +521,67 @@ trilliant_facilities_sql <- function(schema_tbl) {
   )
 }
 
+#' The charge-details table's own name, as the lake spells it
+trilliant_table_name <- function(schema_tbl) {
+  relation <- trilliant_relations(schema_tbl)$details$relation
+  base::gsub('"', "", utils::tail(base::strsplit(relation, ".", fixed = TRUE)[[1]], 1L))
+}
+
+#' Stage 1, one part per batch of lake files, resuming where it stopped
+#'
+#' Each part is written whole or not at all: the manifest is appended only
+#' after DuckDB closes the file, and a part's name comes from its batch's first
+#' data file, so an interrupted batch is rewritten rather than half-read next
+#' time. The scan also reports files done and rows kept as it goes, which the
+#' single scan could not: its only progress signal was a staging file's size.
+#'
+#' @return a glob the matching stage reads as one relation.
+stage_in_batches <- function(data_files, schema_tbl, codebook, connection, settings,
+                             parts_dir, manifest_path, batch_size) {
+  base::dir.create(parts_dir, recursive = TRUE, showWarnings = FALSE)
+  done <- read_stage_manifest(manifest_path)
+  batches <- stage_file_batches(data_files, batch_size)
+  total_rows <- base::sum(data_files$n_rows, na.rm = TRUE)
+
+  base::message(base::sprintf(
+    "Stage 1: %s lake files (%.1f billion rows) in %s batches of %s; resumable, %s file(s) already done.",
+    base::nrow(data_files), total_rows / 1e9, base::length(batches), batch_size,
+    base::sum(data_files$data_file_id %in% done$data_file_id)
+  ))
+
+  for (i in base::seq_along(batches)) {
+    batch <- batches[[i]]
+    if (base::all(batch$data_file_id %in% done$data_file_id)) next
+
+    part <- base::file.path(parts_dir, base::sprintf("part_%012.0f.parquet", batch$data_file_id[[1]]))
+    relation <- base::sprintf("read_parquet([%s])", base::paste(sql_string(batch$path), collapse = ", "))
+    started <- base::Sys.time()
+    run_duckdb_sql(
+      base::c(settings, base::sprintf("COPY (%s) TO %s (FORMAT parquet);",
+                                      trilliant_stage_sql(schema_tbl, codebook, details_relation = relation),
+                                      sql_string(part))),
+      database = connection$database, read_only = TRUE, init = connection$init
+    )
+    kept <- duckdb_query(base::sprintf("SELECT count(*) AS n FROM read_parquet(%s)", sql_string(part)),
+                         database = connection$database, read_only = TRUE)$n[[1]]
+
+    readr::write_csv(
+      tibble::tibble(part = base::basename(part), data_file_id = batch$data_file_id,
+                     n_rows = kept, written_at = utc_timestamp()),
+      manifest_path, append = base::file.exists(manifest_path)
+    )
+    done <- read_stage_manifest(manifest_path)
+    base::message(base::sprintf(
+      "  batch %s/%s: %s file(s), %s target lines kept (%.1f min); %.0f%% of the lake scanned",
+      i, base::length(batches), base::nrow(batch), base::format(kept, big.mark = ","),
+      base::as.numeric(base::difftime(base::Sys.time(), started, units = "mins")),
+      100 * base::sum(data_files$n_rows[data_files$data_file_id %in% done$data_file_id], na.rm = TRUE) / total_rows
+    ))
+  }
+
+  base::file.path(parts_dir, "part_*.parquet")
+}
+
 #' Run the Part A extract
 #'
 #' @param source_path Unzipped lake directory, or a .duckdb file with the
@@ -446,7 +592,12 @@ trilliant_facilities_sql <- function(schema_tbl) {
 #'   scan) and rerun only the matching step. Only valid if the codebook's
 #'   codes have not changed since the stage was written.
 #' @return list(prices_dir, facilities_path, n_price_rows, n_facilities).
-extract_trilliant <- function(source_path, codebook, out_dir = NULL, reuse_stage = FALSE) {
+#' @param stage_batch_files How many lake data files each stage-1 part covers
+#'   (`HPT_STAGE_BATCH`, default 20). Stage 1 writes one part per batch and
+#'   records it in a manifest, so an interrupted scan resumes at the next
+#'   unfinished batch instead of starting over. 0 restores the single scan.
+extract_trilliant <- function(source_path, codebook, out_dir = NULL, reuse_stage = FALSE,
+                              stage_batch_files = base::as.integer(base::Sys.getenv("HPT_STAGE_BATCH", unset = "20"))) {
   require_duckdb_cli("1.5.0")
   out_dir <- out_dir %||% hpt_path("prices", "source=trilliant")
   connection <- trilliant_connection(source_path)
@@ -468,14 +619,29 @@ extract_trilliant <- function(source_path, codebook, out_dir = NULL, reuse_stage
     base::sprintf("SET temp_directory = %s;", sql_string(spill_dir))
   )
 
+  parts_dir <- base::file.path(out_dir, "stage_parts")
+  manifest_path <- base::file.path(parts_dir, "_manifest.csv")
+  data_files <- if (base::is.na(stage_batch_files) || stage_batch_files < 1L) {
+    NULL
+  } else {
+    trilliant_lake_data_files(source_path, trilliant_table_name(schema_tbl))
+  }
+
   if (reuse_stage && base::file.exists(stage_path)) {
     base::message("Stage 1: reusing ", stage_path, " (reuse_stage = TRUE).")
+    stage_source <- stage_path
+  } else if (!base::is.null(data_files)) {
+    stage_source <- stage_in_batches(
+      data_files = data_files, schema_tbl = schema_tbl, codebook = codebook, connection = connection,
+      settings = settings, parts_dir = parts_dir, manifest_path = manifest_path, batch_size = stage_batch_files
+    )
   } else {
-    base::message("Stage 1: streaming the lake for target-code lines (one scan).")
+    base::message("Stage 1: streaming the lake for target-code lines (one scan; not resumable).")
     run_duckdb_sql(
       base::c(settings, base::sprintf("COPY (%s) TO %s (FORMAT parquet);", trilliant_stage_sql(schema_tbl, codebook), sql_string(stage_path))),
       database = connection$database, read_only = TRUE, init = connection$init
     )
+    stage_source <- stage_path
   }
 
   base::message("Stage 2: matching codes and collapsing shared files.")
@@ -484,7 +650,7 @@ extract_trilliant <- function(source_path, codebook, out_dir = NULL, reuse_stage
       settings,
       base::sprintf(
         "COPY (%s) TO %s (FORMAT parquet, PARTITION_BY (concept));",
-        trilliant_extract_sql(schema_tbl, codebook, stage_path = stage_path),
+        trilliant_extract_sql(schema_tbl, codebook, stage_path = stage_source),
         sql_string(prices_dir)
       ),
       base::sprintf(
