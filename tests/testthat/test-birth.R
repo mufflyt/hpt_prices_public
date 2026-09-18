@@ -59,3 +59,27 @@ testthat::test_that("every APR-DRG anchor maps to a delivery DRG that is in the 
   testthat::expect_true(base::all(base::names(map) %in% codebook$code))
   testthat::expect_true(base::all(base::unname(map) %in% codebook$code))
 })
+
+testthat::test_that("a per-diem APR-DRG rate is dropped, since no length of stay can convert it", {
+  filter_sql <- rate_row_filter_sql()
+  testthat::expect_match(filter_sql, "apr_drg_vaginal_delivery")
+  testthat::expect_match(filter_sql, "methodology = 'per diem'")
+
+  db <- base::tempfile(fileext = ".duckdb")
+  run_duckdb_sql(base::c(
+    "CREATE TABLE v AS SELECT * FROM (VALUES
+       ('apr_drg_vaginal_delivery', 'per diem', 1200.0, 'outpatient', false, false, 'facility'),
+       ('apr_drg_vaginal_delivery', 'case rate', 4000.0, 'outpatient', false, false, 'facility'),
+       ('drg_vaginal_delivery', 'per diem', 1300.0, 'inpatient', false, false, 'facility'),
+       ('emb', 'per diem', 200.0, 'outpatient', false, false, 'facility')
+     ) AS t(concept, methodology, case_dollar, setting, case_line, fee_type_inferred, fee_type);"
+  ), database = db)
+  kept <- duckdb_query(base::sprintf("SELECT concept, methodology FROM v WHERE %s ORDER BY 1, 2", filter_sql),
+                       database = db)
+
+  # the APR per-diem row goes; its case rate stays; an MS-DRG per-diem row
+  # stays because the conversion CAN handle it
+  testthat::expect_false(base::any(kept$concept == "apr_drg_vaginal_delivery" & kept$methodology == "per diem"))
+  testthat::expect_true(base::any(kept$concept == "apr_drg_vaginal_delivery" & kept$methodology == "case rate"))
+  testthat::expect_true(base::any(kept$concept == "drg_vaginal_delivery" & kept$methodology == "per diem"))
+})

@@ -11,6 +11,9 @@
 #' from the state medians table.
 #'
 #' Reads hpt.duckdb (read-only), CMS IPPS Tables 1-5, and CMS maternal health.
+#' With HPT_BIRTH_APR_DRG=true every output below is written under the
+#' birth_apr_ prefix instead, so the two builds sit side by side.
+#'
 #' Writes to HPT_DATA_DIR/output/ (Trilliant-derived; never committed):
 #'   birth_hospital_prices.csv        hospital x DRG x payer: price, Medicare IPPS, ratio
 #'   birth_national_summary.csv       DRG x payer: median price and ratio, IQR, n
@@ -32,6 +35,14 @@ codes <- base::unname(birth_drg_anchors())
 # in R/birth_prices.R). The headline numbers stay MS-DRG only.
 use_apr_drg <- base::identical(base::Sys.getenv("HPT_BIRTH_APR_DRG"), "true")
 price_codes <- if (use_apr_drg) base::c(codes, base::names(apr_drg_anchor_map())) else codes
+# The fallback run writes its own files rather than overwriting the MS-DRG
+# ones. It used to share them, so whichever run went last owned output/, and an
+# impact table then compared an MS-DRG "before" against an APR-DRG "after" and
+# reported a 14% fall in the Medicaid delivery price that was really 347 extra
+# hospitals. Both builds now sit side by side and can be compared directly.
+out_prefix <- if (use_apr_drg) "birth_apr_" else "birth_"
+out_file <- function(name) base::file.path(out_dir, base::paste0(out_prefix, name))
+fig_prefix <- if (use_apr_drg) "birth_apr" else "birth" 
 payer_types <- base::c("commercial", "medicaid", "medicare_advantage", "self_pay_cash")
 min_hospitals <- 5L
 out_dir <- hpt_path("output")
@@ -63,7 +74,7 @@ all_prices <- ownership_hospital_prices(db_path, codes = price_codes, payer_type
   add_apr_drg_delivery_prices()
 if (use_apr_drg) {
   n_apr <- dplyr::n_distinct(all_prices$ccn[all_prices$price_source == "apr_drg"])
-  base::message("APR-DRG fallback on: ", n_apr, " hospitals contribute a delivery price only as APR-DRG severity 1")
+  base::message("APR-DRG fallback on: ", n_apr, " hospitals post a delivery price only as APR-DRG severity 1")
 }
 prices <- dplyr::filter(all_prices, !.data$ccn %in% no_ld)
 base::message("Delivery prices: ", dplyr::n_distinct(prices$ccn), " hospitals after dropping ",
@@ -108,15 +119,21 @@ medicare_check <- ownership_hospital_prices(db_path, codes = codes, payer_types 
                    p25 = stats::quantile(.data$ratio, 0.25, names = FALSE), p75 = stats::quantile(.data$ratio, 0.75, names = FALSE),
                    .groups = "drop")
 
-write_csv_atomic(ratios, base::file.path(out_dir, "birth_hospital_prices.csv"))
-write_csv_atomic(national, base::file.path(out_dir, "birth_national_summary.csv"))
-write_csv_atomic(states, base::file.path(out_dir, "birth_state_summary.csv"))
-write_csv_atomic(premium, base::file.path(out_dir, "birth_cesarean_premium.csv"))
+if (use_apr_drg) {
+  # the count above is taken before the labour-and-delivery filter; this is the
+  # number that actually reaches the medians, and it is the one to quote
+  base::message("APR-DRG fallback: ", dplyr::n_distinct(ratios$ccn[ratios$price_source == "apr_drg"]),
+                " of them survive the labour-and-delivery filter and enter the analysis")
+}
+write_csv_atomic(ratios, out_file("hospital_prices.csv"))
+write_csv_atomic(national, out_file("national_summary.csv"))
+write_csv_atomic(states, out_file("state_summary.csv"))
+write_csv_atomic(premium, out_file("cesarean_premium.csv"))
 write_csv_atomic(dplyr::bind_rows(dplyr::mutate(premium_national, state = "US"), premium_states),
-                 base::file.path(out_dir, "birth_premium_summary.csv"))
-write_csv_atomic(by_group, base::file.path(out_dir, "birth_by_hospital_group.csv"))
-write_csv_atomic(professional, base::file.path(out_dir, "birth_professional_fees.csv"))
-write_csv_atomic(medicare_check, base::file.path(out_dir, "birth_medicare_check.csv"))
+                 out_file("premium_summary.csv"))
+write_csv_atomic(by_group, out_file("by_hospital_group.csv"))
+write_csv_atomic(professional, out_file("professional_fees.csv"))
+write_csv_atomic(medicare_check, out_file("medicare_check.csv"))
 
 base::print(national, n = 50)
 base::print(premium_national)
@@ -147,8 +164,8 @@ rank_page <- function(code, label) {
                              plot.caption = ggplot2::element_text(size = 9, colour = "grey30", hjust = 0))
     )
 }
-save_figure(rank_page("807", "Vaginal delivery"), "birth1_vaginal_ranks", width = 14, height = 9.5)
-save_figure(rank_page("788", "Cesarean delivery"), "birth1_cesarean_ranks", width = 14, height = 9.5)
+save_figure(rank_page("807", "Vaginal delivery"), base::paste0(fig_prefix, "1_vaginal_ranks"), width = 14, height = 9.5)
+save_figure(rank_page("788", "Cesarean delivery"), base::paste0(fig_prefix, "1_cesarean_ranks"), width = 14, height = 9.5)
 
 premium_chart_data <- premium_states |>
   dplyr::filter(.data$payer_type %in% base::c("commercial", "medicaid")) |>
@@ -170,7 +187,7 @@ premium_plot <- state_region_chart(premium_chart_data,
                            plot.subtitle = ggplot2::element_text(size = 11, colour = "grey30"),
                            plot.caption = ggplot2::element_text(size = 9, colour = "grey30", hjust = 0))
   )
-save_figure(premium_plot, "birth2_cesarean_premium", width = 14, height = 9.5)
+save_figure(premium_plot, base::paste0(fig_prefix, "2_cesarean_premium"), width = 14, height = 9.5)
 
 map_states <- dplyr::filter(states, .data$code == "807")
 limits <- ratio_limits(map_states, base::c("commercial", "medicaid"))
@@ -186,6 +203,6 @@ maps <- patchwork::wrap_plots(
   theme = ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 13),
                          plot.caption = ggplot2::element_text(size = 7, colour = "grey30", hjust = 0))
 )
-save_figure(maps, "birth3_vaginal_maps", width = 12, height = 4.6)
+save_figure(maps, base::paste0(fig_prefix, "3_vaginal_maps"), width = 12, height = 4.6)
 
 base::message("Figures: ", fig_dir)
