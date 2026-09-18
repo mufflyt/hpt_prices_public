@@ -193,3 +193,40 @@ testthat::test_that("state FIPS codes map to USPS abbreviations", {
   testthat::expect_equal(base::unname(m[base::c("06", "11", "34", "56")]), base::c("CA", "DC", "NJ", "WY"))
   testthat::expect_setequal(base::setdiff(m, "PR"), base::c(datasets::state.abb, "DC"))
 })
+
+testthat::test_that("the county map keys polygons by FIPS and leaves unreported counties empty", {
+  testthat::skip_if_not_installed("maps")
+  polys <- county_polygons()
+  testthat::expect_true(base::all(base::c("long", "lat", "group", "county_fips") %in% base::names(polys)))
+  # every FIPS is five digits, and the bridge covers nearly every polygon
+  fips <- stats::na.omit(base::unique(polys$county_fips))
+  testthat::expect_true(base::all(stringr::str_detect(fips, "^[0-9]{5}$")))
+  testthat::expect_gt(base::length(fips), 3000)
+  testthat::expect_lt(base::mean(base::is.na(polys$county_fips)), 0.01)
+
+  rates <- tibble::tibble(county_fips = base::c("08031", "36061"), cesarean_rate = base::c(0.24, 0.31))
+  p <- ntsv_county_map(rates)
+  drawn <- p$data
+  # the two reported counties carry a rate; every other county is NA, which is
+  # what the grey on the map means
+  testthat::expect_equal(base::sort(base::unique(drawn$rate_pct[!base::is.na(drawn$rate_pct)])), base::c(24, 31))
+  testthat::expect_true(base::mean(base::is.na(drawn$rate_pct)) > 0.9)
+})
+
+testthat::test_that("the supply plot says its line is unadjusted, beside the adjusted estimate", {
+  d <- tibble::tibble(county_fips = base::sprintf("%05d", 1:20), cnm_per_1k_births = base::seq(0.5, 10, length.out = 20),
+                      cesarean_rate = base::seq(0.30, 0.22, length.out = 20), ntsv_births = 1000)
+  plain <- ntsv_supply_rate_plot(d)
+  testthat::expect_match(plain$labels$subtitle, "unadjusted weighted fit")
+  testthat::expect_false(base::grepl("Adjusted model", plain$labels$subtitle))
+
+  labelled <- ntsv_supply_rate_plot(d, slope_pp = -0.42)
+  testthat::expect_match(labelled$labels$subtitle, "unadjusted weighted fit")
+  testthat::expect_match(labelled$labels$subtitle, "Adjusted model, within states: -0.42 points per doubling")
+  testthat::expect_match(labelled$labels$subtitle, "association, not effect")
+
+  # rows with no supply or no rate are dropped rather than plotted at zero
+  gappy <- dplyr::bind_rows(d, tibble::tibble(county_fips = "99999", cnm_per_1k_births = NA_real_,
+                                              cesarean_rate = 0.25, ntsv_births = 10))
+  testthat::expect_equal(base::nrow(ntsv_supply_rate_plot(gappy)$data), 20)
+})

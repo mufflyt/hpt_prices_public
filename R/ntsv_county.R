@@ -427,3 +427,99 @@ implied_facility_price_differential <- function(counties, differentials, slope, 
                        .groups = "drop")
   }))
 }
+
+# ---- figures ----------------------------------------------------------------------
+
+#' County polygons keyed by FIPS
+#'
+#' `maps` carries county outlines by name, not FIPS, and `maps::county.fips`
+#' is the bridge it ships for exactly this. Counties split into several
+#' polygons there ("washington:main", "washington:whidbey island") share one
+#' FIPS, which is what the join needs.
+county_polygons <- function() {
+  if (!base::requireNamespace("maps", quietly = TRUE)) {
+    base::stop("Package 'maps' is required for the county map.")
+  }
+  bridge <- maps::county.fips |>
+    dplyr::mutate(region = stringr::str_remove(.data$polyname, ":.*$"),
+                  county_fips = stringr::str_pad(.data$fips, 5, pad = "0"))
+  ggplot2::map_data("county") |>
+    dplyr::mutate(polyname = base::paste(.data$region, .data$subregion, sep = ",")) |>
+    dplyr::left_join(dplyr::distinct(bridge, .data$polyname, .data$county_fips), by = "polyname")
+}
+
+#' Map the NTSV cesarean rate by county of residence
+#'
+#' Counties WONDER does not report (under 100,000 residents) are the map's
+#' main feature, not an omission: they are most of the country and they are
+#' drawn in the missing-data grey so the coverage limit is visible rather than
+#' implied. Alaska and Hawaii are left out, as in the colonoscopy maps.
+#'
+#' @param rates tibble(county_fips, cesarean_rate), rate as a proportion.
+#' @param title,subtitle plot text.
+ntsv_county_map <- function(rates, title = "NTSV cesarean rate by county of residence", subtitle = NULL) {
+  polygons <- county_polygons() |>
+    dplyr::left_join(dplyr::transmute(rates, .data$county_fips, rate_pct = 100 * .data$cesarean_rate),
+                     by = "county_fips")
+
+  ggplot2::ggplot(polygons, ggplot2::aes(x = .data$long, y = .data$lat, group = .data$group, fill = .data$rate_pct)) +
+    ggplot2::geom_polygon(colour = "white", linewidth = 0.05) +
+    ggplot2::coord_map("albers", lat0 = 29.5, lat1 = 45.5) +
+    ggplot2::scale_fill_gradient2(
+      name = "NTSV cesarean\nrate (%)", low = "#2166ac", mid = "#f7f7f7", high = "#b2182b",
+      midpoint = stats::median(polygons$rate_pct, na.rm = TRUE), na.value = geo_na_fill()
+    ) +
+    ggplot2::labs(title = title, subtitle = subtitle, x = NULL, y = NULL,
+                  caption = "Grey: county not reported by CDC WONDER (under 100,000 residents) or suppressed.") +
+    ggplot2::theme_void(base_size = 11) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"),
+                   plot.caption = ggplot2::element_text(size = 8, colour = "grey30", hjust = 0))
+}
+
+#' Midwife supply against the NTSV cesarean rate
+#'
+#' One point per county, area proportional to NTSV births, because a county
+#' with 300 first births and one with 30,000 are not equal evidence and a
+#' plot that draws them the same size says they are.
+#'
+#' THE LINE IS NOT THE MODEL. It is the births-weighted bivariate fit, with no
+#' covariates and no state fixed effects, so it can and does point the other
+#' way from the adjusted estimate: most of the model's work is comparing
+#' counties WITHIN a state, and this line compares all counties at once. Both
+#' are labelled as what they are, because a plot whose line disagrees with the
+#' number printed beside it is worse than either alone.
+#'
+#' @param data county rows with cnm_per_1k_births, cesarean_rate, ntsv_births,
+#'   and optionally `roster_covered` and a metro label.
+#' @param slope_pp optional ADJUSTED slope in percentage points per doubling of
+#'   supply, reported in the subtitle beside the unadjusted line.
+ntsv_supply_rate_plot <- function(data, slope_pp = NULL,
+                                  title = "Midwife supply and the NTSV cesarean rate") {
+  points <- data |>
+    dplyr::filter(!base::is.na(.data$cnm_per_1k_births), !base::is.na(.data$cesarean_rate)) |>
+    dplyr::mutate(rate_pct = 100 * .data$cesarean_rate,
+                  supply = .data$cnm_per_1k_births + 0.5)
+  n_counties <- base::format(base::nrow(points), big.mark = ",")
+  subtitle <- if (base::is.null(slope_pp)) {
+    base::sprintf("%s counties CDC WONDER reports, sized by NTSV births. Line: unadjusted weighted fit.", n_counties)
+  } else {
+    base::sprintf(paste0("%s counties, sized by NTSV births. Line: unadjusted weighted fit. ",
+                         "Adjusted model, within states: %+.2f points per doubling (association, not effect)."),
+                  n_counties, slope_pp)
+  }
+
+  ggplot2::ggplot(points, ggplot2::aes(x = .data$supply, y = .data$rate_pct)) +
+    ggplot2::geom_point(ggplot2::aes(size = .data$ntsv_births), alpha = 0.35, colour = "#2166ac") +
+    ggplot2::geom_smooth(ggplot2::aes(weight = .data$ntsv_births), method = "lm", formula = y ~ x,
+                         se = TRUE, colour = "#b2182b", linewidth = 0.7) +
+    ggplot2::scale_x_continuous(transform = "log2", breaks = base::c(0.5, 1, 2, 4, 8, 16, 32),
+                                labels = function(x) base::round(x - 0.5, 1)) +
+    ggplot2::scale_size_area(name = "NTSV births", max_size = 6, labels = scales::label_comma()) +
+    ggplot2::labs(title = title, subtitle = subtitle,
+                  x = "Midwives within the radius per 1,000 births (log scale)",
+                  y = "NTSV cesarean rate (%)",
+                  caption = "Midwives: AMCB-certified, NPPES practice ZIP. Rates: CDC WONDER natality, county of residence.") +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"),
+                   plot.caption = ggplot2::element_text(size = 8, colour = "grey30", hjust = 0))
+}
