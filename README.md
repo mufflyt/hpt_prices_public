@@ -154,6 +154,11 @@ professional-level. Rules and their evidence: `case_line_multiple()` in `R/duckd
 Every crawl stage is resumable and logs per-item status under `HPT_DATA_DIR/state/`.
 Set `HPT_MAX_ITEMS` for a pilot run.
 
+The lake scan in `analysis/01` is resumable too: it reads the charge-details table through its own
+parquet files in batches of `HPT_STAGE_BATCH` (default 20), writing one part per batch and
+recording it in a manifest, so an interrupted scan restarts at the first unfinished batch. Set
+`HPT_STAGE_BATCH=0` for the old single scan.
+
 Lake queries run through the DuckDB CLI (>= 1.5, required for DuckLake 1.0), not the R
 `duckdb` package.
 

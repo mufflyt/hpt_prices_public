@@ -141,3 +141,106 @@ testthat::test_that("lake layout: internal_id + run_date keys, versions hash, id
   testthat::expect_equal(er$type_2_npi, "1154375129")                  # NPI from hospital_identity
   testthat::expect_equal(facilities$type_2_npi[facilities$location_name == "HCA SE Main"], "1174576698")
 })
+
+# ---- resumable stage 1 -------------------------------------------------------------
+
+fake_lake <- function(n_files = 3L, deletes = 0L, inlined = 0L, drop_file = FALSE) {
+  dir <- base::tempfile("lake")
+  data_dir <- base::file.path(dir, "data", "main", "standard_charge_details")
+  base::dir.create(data_dir, recursive = TRUE)
+  names <- base::sprintf("ducklake-%02d.parquet", base::seq_len(n_files))
+  for (i in base::seq_len(n_files)) {
+    readr::write_csv(tibble::tibble(x = i), base::file.path(data_dir, base::paste0(names[[i]], ".csv")))
+    base::file.rename(base::file.path(data_dir, base::paste0(names[[i]], ".csv")), base::file.path(data_dir, names[[i]]))
+  }
+  if (drop_file) base::unlink(base::file.path(data_dir, names[[1]]))
+
+  run_duckdb_sql(base::c(
+    "CREATE TABLE ducklake_table (table_id BIGINT, table_name VARCHAR);",
+    "INSERT INTO ducklake_table VALUES (7, 'standard_charge_details'), (5, 'hospitals');",
+    "CREATE TABLE ducklake_data_file (data_file_id BIGINT, table_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, record_count BIGINT, file_size_bytes BIGINT);",
+    base::sprintf("INSERT INTO ducklake_data_file VALUES %s;", base::paste(base::sprintf(
+      "(%d, 7, '%s', true, %d, %d)", base::seq_len(n_files), names, 1000L * base::seq_len(n_files), 99L), collapse = ", ")),
+    "CREATE TABLE ducklake_delete_file (data_file_id BIGINT, table_id BIGINT);",
+    if (deletes > 0L) "INSERT INTO ducklake_delete_file VALUES (1, 7);",
+    # DuckLake registers an inlined table for every table, empty or not
+    "CREATE TABLE ducklake_inlined_data_tables (table_id BIGINT, table_name VARCHAR, schema_version BIGINT);",
+    "INSERT INTO ducklake_inlined_data_tables VALUES (7, 'ducklake_inlined_data_7_7', 7);",
+    "CREATE TABLE ducklake_inlined_data_7_7 (x BIGINT);",
+    if (inlined > 0L) "INSERT INTO ducklake_inlined_data_7_7 VALUES (1);"
+  ), database = base::file.path(dir, "metadata.ducklake"))
+  dir
+}
+
+testthat::test_that("the lake's data files are listed, and never when reading them would be incomplete", {
+  files <- trilliant_lake_data_files(fake_lake(3L), "standard_charge_details")
+  testthat::expect_equal(base::nrow(files), 3)
+  testthat::expect_equal(files$n_rows, base::c(1000, 2000, 3000))
+  testthat::expect_true(base::all(base::file.exists(files$path)))
+
+  # a table with deleted rows, or rows inlined in the metadata, cannot be read
+  # from its parquet files alone: the caller must fall back to the full scan
+  testthat::expect_null(trilliant_lake_data_files(fake_lake(3L, deletes = 1L), "standard_charge_details"))
+  testthat::expect_null(trilliant_lake_data_files(fake_lake(3L, inlined = 1L), "standard_charge_details"))
+  # an EMPTY inlined table is registered for every DuckLake table and must not
+  # be read as "this table has inlined rows" -- that rejected the real lake
+  testthat::expect_equal(base::nrow(trilliant_lake_data_files(fake_lake(2L), "standard_charge_details")), 2)
+  # a file the metadata names but the disk does not have
+  testthat::expect_null(trilliant_lake_data_files(fake_lake(3L, drop_file = TRUE), "standard_charge_details"))
+  # a lake directory with no metadata at all
+  testthat::expect_null(trilliant_lake_data_files(base::tempdir(), "standard_charge_details"))
+})
+
+testthat::test_that("batches cover every file exactly once", {
+  files <- tibble::tibble(data_file_id = 1:7, path = base::letters[1:7], n_rows = 1, bytes = 1)
+  batches <- stage_file_batches(files, 3)
+  testthat::expect_equal(base::length(batches), 3)
+  testthat::expect_equal(base::vapply(batches, base::nrow, base::integer(1), USE.NAMES = FALSE), base::c(3L, 3L, 1L))
+  testthat::expect_equal(base::sort(base::unlist(base::lapply(batches, function(b) b$data_file_id), use.names = FALSE)), 1:7)
+  testthat::expect_equal(base::length(stage_file_batches(files, 100)), 1)
+})
+
+testthat::test_that("an interrupted stage resumes at the first unfinished batch", {
+  parts <- base::tempfile("parts")
+  base::dir.create(parts)
+  manifest <- base::file.path(parts, "_manifest.csv")
+  files <- tibble::tibble(data_file_id = 1:6, path = base::paste0(base::letters[1:6], ".parquet"), n_rows = 10, bytes = 1)
+
+  testthat::expect_equal(base::nrow(read_stage_manifest(manifest)), 0)
+
+  # batches 1 and 2 (files 1-4) already written before the interruption
+  readr::write_csv(tibble::tibble(part = "part_000000000001.parquet", data_file_id = 1:4, n_rows = 7,
+                                  written_at = utc_timestamp()), manifest)
+
+  ran <- base::character()
+  real_sql <- base::get("run_duckdb_sql", envir = base::globalenv())
+  real_query <- base::get("duckdb_query", envir = base::globalenv())
+  real_stage <- base::get("trilliant_stage_sql", envir = base::globalenv())
+  # the SQL itself is covered by the fixture extract above; here only which
+  # files each batch reads matters
+  base::assign("trilliant_stage_sql", function(schema_tbl, codebook, details_relation = NULL) {
+    base::paste("SELECT 1 FROM", details_relation)
+  }, envir = base::globalenv())
+  base::assign("run_duckdb_sql", function(sql, ...) {
+    ran <<- base::c(ran, sql[[base::length(sql)]])
+    invisible(NULL)
+  }, envir = base::globalenv())
+  base::assign("duckdb_query", function(...) tibble::tibble(n = 3), envir = base::globalenv())
+  withr::defer({
+    base::assign("run_duckdb_sql", real_sql, envir = base::globalenv())
+    base::assign("duckdb_query", real_query, envir = base::globalenv())
+    base::assign("trilliant_stage_sql", real_stage, envir = base::globalenv())
+  })
+
+  glob <- stage_in_batches(files, schema_tbl = NULL, codebook = NULL, connection = base::list(database = "x", init = NULL),
+                           settings = base::character(), parts_dir = parts, manifest_path = manifest, batch_size = 2)
+
+  # only the unfinished batch (files 5 and 6) is scanned
+  testthat::expect_length(ran, 1)
+  testthat::expect_true(base::grepl("e.parquet", ran[[1]], fixed = TRUE))
+  testthat::expect_true(base::grepl("f.parquet", ran[[1]], fixed = TRUE))
+  testthat::expect_false(base::grepl("a.parquet", ran[[1]], fixed = TRUE))
+  # the manifest now covers every file, and stage 2 reads the parts as one relation
+  testthat::expect_setequal(read_stage_manifest(manifest)$data_file_id, 1:6)
+  testthat::expect_equal(base::basename(glob), "part_*.parquet")
+})
