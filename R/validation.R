@@ -1264,6 +1264,68 @@ check_thin_states <- function(medians, min_hospitals = 3L, pass_states = 40L) {
   }))
 }
 
+#' Recompute a published median from the database, by a separate route
+#'
+#' The medians are built by one SQL statement, and a check that reads that
+#' statement's own output proves only that a file was written. This recomputes
+#' a published cell from `v_hospital_rate` independently -- contract median,
+#' then hospital median, then the median across hospitals -- and compares.
+#'
+#' An audit on 2026-09-18 did this by hand for colonoscopy and reached
+#' $2,220.4775 across 2,312 hospitals, matching the pipeline exactly, but only
+#' after applying the excluded files and the requirement of a known state.
+#' Getting it wrong first is the point: each filter is load-bearing, and this
+#' check pins the whole chain rather than any one part of it.
+#'
+#' @param code,payer the published cell to recompute.
+#' @param tolerance largest relative difference treated as agreement.
+check_median_recomputation <- function(db_path, medians, exclude_file_ids = NULL,
+                                       code = "45378", payer = "commercial", tolerance = 1e-6) {
+  description <- base::sprintf("the published %s %s median recomputes from v_hospital_rate", code, payer)
+  published <- medians |>
+    dplyr::filter(.data$state == "US", .data$code == !!code, .data$insurance_type == !!payer,
+                  .data$fee_type == "facility")
+
+  if (base::nrow(published) != 1L) {
+    return(validation_row("integrity_median_recomputation", "integrity", description, "skip",
+                          detail = "no published cell for this code and payer"))
+  }
+
+  exclude_sql <- if (base::length(exclude_file_ids) > 0L) {
+    base::paste0(" AND mrf_file_id NOT IN (", sql_string_list(exclude_file_ids), ")")
+  } else {
+    ""
+  }
+  sql <- base::paste0(
+    "WITH base AS (",
+    "  SELECT unit_id, payer_name, plan_name, case_dollar FROM v_hospital_rate",
+    "  WHERE code = ", sql_string(code), " AND payer_type = ", sql_string(payer),
+    # plausible is NOT part of rate_row_filter_sql(): the medians apply it
+    # separately, at the contract stage, and a recomputation that forgets it
+    # quietly readmits the $0.01 placeholders and the 9-filled sentinels
+    "    AND fee_type = 'facility' AND state IS NOT NULL AND case_dollar IS NOT NULL AND plausible",
+    "    AND ", rate_row_filter_sql(), exclude_sql, "),",
+    " contract AS (SELECT unit_id, payer_name, plan_name, median(case_dollar) AS m FROM base GROUP BY ALL),",
+    " hospital AS (SELECT unit_id, median(m) AS m FROM contract GROUP BY 1)",
+    " SELECT median(m) AS median_price, count(*) AS n_hospitals FROM hospital"
+  )
+  again <- duckdb_query(sql, database = db_path, read_only = TRUE)
+
+  difference <- base::abs(again$median_price[[1]] - published$median_price[[1]]) /
+    base::max(published$median_price[[1]], 1)
+  same_n <- again$n_hospitals[[1]] == published$n_hospitals[[1]]
+
+  validation_row(
+    "integrity_median_recomputation", "integrity", description,
+    if (difference <= tolerance && same_n) "pass" else "fail",
+    metric = difference,
+    threshold = base::sprintf("<= %s and the same hospital count", tolerance),
+    detail = base::sprintf("published %.4f (%s hospitals); recomputed %.4f (%s hospitals)",
+                           published$median_price[[1]], published$n_hospitals[[1]],
+                           again$median_price[[1]], again$n_hospitals[[1]])
+  )
+}
+
 #' state_median_headline() blanks every cell below min_hospitals and keeps
 #' every other one
 check_headline_suppression <- function(medians, min_hospitals = 3L, headline_fn = state_median_headline) {
@@ -1367,7 +1429,9 @@ run_validation <- function(db_path = hpt_database_path(), out_dir = hpt_path("ou
     base::list("coverage_ccn_share", "coverage", function() check_coverage(needs(coverage, "coverage by state"))),
     base::list("coverage_rates_without_state", "coverage", function() check_rates_without_state(db_path)),
     base::list("coverage_states", "coverage", function() check_thin_states(needs(medians, "state medians"))),
-    base::list("coverage_headline_suppression", "coverage", function() check_headline_suppression(needs(medians, "state medians")))
+    base::list("coverage_headline_suppression", "coverage", function() check_headline_suppression(needs(medians, "state medians"))),
+    base::list("integrity_median_recomputation", "integrity",
+               function() check_median_recomputation(db_path, needs(medians, "state medians"), excluded))
   )
 
   report <- dplyr::bind_rows(base::lapply(checks, function(check) {
