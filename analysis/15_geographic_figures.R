@@ -78,13 +78,6 @@ map_title <- function(payer) {
   base::sprintf("%s (national median %.2fx)", payer_label(payer), national_ratio)
 }
 
-save_figure <- function(plot, name, width, height) {
-  for (ext in base::c("png", "pdf")) {
-    ggplot2::ggsave(base::file.path(fig_dir, base::paste0(name, ".", ext)), plot, width = width, height = height,
-                    dpi = 300, bg = "white")
-  }
-}
-
 fig1 <- patchwork::wrap_plots(
   ratio_state_map(dplyr::filter(summary, .data$payer_type == "commercial"), map_title("commercial"), limits),
   ratio_state_map(dplyr::filter(summary, .data$payer_type == "medicaid"), map_title("medicaid"), limits),

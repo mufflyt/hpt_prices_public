@@ -130,11 +130,6 @@ caption <- base::paste(
   "Data: Trilliant Health Hospital MRF Data Directory (snapshot 2026-07-21); CMS FY 2026 IPPS Tables 1-5; CMS Care Compare maternal health.",
   sep = "\n"
 )
-save_figure <- function(plot, name, width, height) {
-  for (ext in base::c("png", "pdf")) {
-    ggplot2::ggsave(base::file.path(fig_dir, base::paste0(name, ".", ext)), plot, width = width, height = height, dpi = 300, bg = "white")
-  }
-}
 national_ratio <- function(code, payer) national$median_ratio[national$code == code & national$payer_type == payer]
 
 rank_page <- function(code, label) {
