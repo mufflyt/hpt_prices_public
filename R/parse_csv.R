@@ -381,10 +381,6 @@ target_code_sql_predicate <- function(column_sql, codebook) {
   base::paste0("(", base::paste(clauses, collapse = " OR "), ")")
 }
 
-sql_identifier <- function(x) {
-  base::paste0("\"", stringr::str_replace_all(x, "\"", "\"\""), "\"")
-}
-
 #' Run a DuckDB CLI script whose input CSV arrives on stdin from a command
 #'
 #' Like [run_duckdb_sql()] but with `<input_command> | duckdb`, so a file

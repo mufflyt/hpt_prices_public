@@ -626,3 +626,17 @@ geo_figure_caption <- function(code, extra = NULL) {
     collapse = "\n"
   )
 }
+
+#' Write a figure as PNG and PDF
+#'
+#' One definition: analysis/15 and analysis/16 each carried their own copy,
+#' which is how two figure writers drift to different dpi or background.
+#'
+#' @param dir where the files go; defaults to the pipeline's figure directory,
+#'   which is what every caller passed.
+save_figure <- function(plot, name, width, height, dir = hpt_path("output", "figures")) {
+  for (ext in base::c("png", "pdf")) {
+    ggplot2::ggsave(base::file.path(dir, base::paste0(name, ".", ext)), plot,
+                    width = width, height = height, dpi = 300, bg = "white")
+  }
+}

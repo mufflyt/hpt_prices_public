@@ -44,21 +44,6 @@ hospital_name_tokens <- function(name) {
   base::setdiff(tokens, hospital_name_stop_words())
 }
 
-token_jaccard <- function(x, y) {
-  union_tokens <- base::union(x, y)
-
-  if (base::length(union_tokens) == 0L) {
-    return(0)
-  }
-
-  base::length(base::intersect(x, y)) / base::length(union_tokens)
-}
-
-# ported from emb_colonoscopy R/hpt_hospital_discovery.R @ 471e067
-hospital_name_score <- function(reference_name, candidate_name) {
-  token_jaccard(hospital_name_tokens(reference_name), hospital_name_tokens(candidate_name))
-}
-
 #' Name tokens for matching, vectorized
 #'
 #' The [hospital_name_tokens()] rules after expanding the roster's

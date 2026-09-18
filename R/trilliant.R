@@ -20,10 +20,6 @@
 #' lists it, and the extract stops with the list of missing columns rather
 #' than guessing.
 
-trilliant_lake_dir <- function(snapshot = "20260721") {
-  hpt_path("trilliant", snapshot, "lake")
-}
-
 #' SQL that attaches the DuckLake catalog read-only (run with catalog.duckdb
 #' opened read-only as the main database)
 trilliant_init_sql <- function(lake_dir) {

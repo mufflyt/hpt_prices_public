@@ -167,7 +167,5 @@ fig <- ggplot2::ggplot(plot_data, ggplot2::aes(x = .data$cnm_tertile, y = .data$
   ggplot2::theme_minimal(base_size = 11) +
   ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"), strip.text = ggplot2::element_text(face = "bold"),
                  plot.caption = ggplot2::element_text(size = 8, colour = "grey30", hjust = 0))
-for (ext in base::c("png", "pdf")) {
-  ggplot2::ggsave(base::file.path(fig_dir, base::paste0("birth4_midwifery_presence.", ext)), fig, width = 14, height = 5, dpi = 300, bg = "white")
-}
+save_figure(fig, "birth4_midwifery_presence", width = 14, height = 5)
 base::message("Figure: ", fig_dir)
