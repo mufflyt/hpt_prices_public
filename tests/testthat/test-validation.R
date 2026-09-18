@@ -729,3 +729,40 @@ testthat::test_that("a check that errors becomes a fail row instead of stopping 
   testthat::expect_equal(row$status, "fail")
   testthat::expect_match(row$detail, "kaput")
 })
+
+testthat::test_that("the median recomputation check catches a median that drifted", {
+  db <- validation_fixture_path()
+  medians <- validation_medians(db)
+  testthat::expect_gt(base::nrow(medians), 0)
+
+  honest <- check_median_recomputation(db, medians, code = medians$code[[1]],
+                                       payer = medians$insurance_type[[1]])
+  testthat::expect_true(honest$status %in% base::c("pass", "skip"))
+
+  if (honest$status == "pass") {
+    # a published median that no longer matches the database must fail, which
+    # is the whole point: the check reads the database, not the file it is
+    # comparing against
+    drifted <- medians
+    row <- drifted$state == "US" & drifted$code == medians$code[[1]] &
+      drifted$insurance_type == medians$insurance_type[[1]] & drifted$fee_type == "facility"
+    if (base::any(row)) {
+      drifted$median_price[row] <- drifted$median_price[row] * 1.10
+      bad <- check_median_recomputation(db, drifted, code = medians$code[[1]], payer = medians$insurance_type[[1]])
+      testthat::expect_equal(bad$status, "fail")
+      testthat::expect_gt(bad$metric, 0.05)
+    }
+
+    # a hospital count that drifted fails too, even when the median agrees
+    miscounted <- medians
+    if (base::any(row)) {
+      miscounted$n_hospitals[row] <- miscounted$n_hospitals[row] + 1L
+      off <- check_median_recomputation(db, miscounted, code = medians$code[[1]], payer = medians$insurance_type[[1]])
+      testthat::expect_equal(off$status, "fail")
+    }
+  }
+
+  # a cell the build never published is skipped, not failed
+  absent <- check_median_recomputation(db, medians, code = "00000", payer = "commercial")
+  testthat::expect_equal(absent$status, "skip")
+})
