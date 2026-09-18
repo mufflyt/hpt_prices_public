@@ -103,6 +103,20 @@ normalize_city <- function(city) {
     stringr::str_replace_all(base::c("\\bSAINT\\b" = "ST", "\\bFORT\\b" = "FT", "\\bMOUNT\\b" = "MT"))
 }
 
+#' The five-digit ZIP a record carries, wherever it sits
+#'
+#' The roster has a zip_code column; an MRF facility has only a free-text
+#' address, where the ZIP is the last five-digit run ("777 Bannock St,
+#' Denver, CO 80204", ZIP+4 truncated to five). Returns NA when there is
+#' none, and NA never blocks anything: a missing ZIP cannot contradict one.
+zip_key <- function(x) {
+  x <- base::as.character(x)
+  bare <- stringr::str_match(stringr::str_trim(x), "^([0-9]{5})(?:-[0-9]{4})?$")[, 2]
+  trailing <- stringr::str_match(x, "([0-9]{5})(?:-[0-9]{4})?\\s*$")[, 2]
+  out <- dplyr::coalesce(bare, trailing)
+  dplyr::if_else(base::is.na(out) | !base::nzchar(out), NA_character_, out)
+}
+
 #' Weighted similarity over whichever components are available
 #'
 #' Name 0.5, street address 0.35, city 0.15; a missing address or city
@@ -132,12 +146,14 @@ combine_similarity <- function(name_score, address_score, city_score) {
 #' Inverted indexes (token -> alias ids, token -> profile rows) let
 #' [score_ccn_candidates()] count token overlaps against every CCN at once.
 ccn_match_profiles <- function(universe, npi_xwalk = NULL, tracker_manifest = NULL) {
+  universe <- add_missing_columns(universe, "zip_code")
   profile <- universe |>
     dplyr::transmute(
       ccn = .data$facility_id,
       state = .data$state,
       address = .data$address,
       citytown = .data$citytown,
+      zip = .data$zip_code,
       name = .data$facility_name,
       in_universe = TRUE
     )
@@ -148,7 +164,7 @@ ccn_match_profiles <- function(universe, npi_xwalk = NULL, tracker_manifest = NU
       dplyr::distinct(.data$ccn, .keep_all = TRUE) |>
       dplyr::transmute(
         ccn = .data$ccn, state = .data$state, address = NA_character_,
-        citytown = .data$city, name = .data$hospital_name, in_universe = FALSE
+        citytown = .data$city, zip = NA_character_, name = .data$hospital_name, in_universe = FALSE
       )
     profile <- dplyr::bind_rows(profile, tracker_profile)
   }
@@ -161,7 +177,7 @@ ccn_match_profiles <- function(universe, npi_xwalk = NULL, tracker_manifest = NU
       dplyr::distinct(.data$ccn, .keep_all = TRUE) |>
       dplyr::transmute(
         ccn = .data$ccn, state = .data$state, address = NA_character_,
-        citytown = NA_character_,
+        citytown = NA_character_, zip = NA_character_,
         name = dplyr::coalesce(.data$doing_business_as_name, .data$organization_name),
         in_universe = FALSE
       )
@@ -186,6 +202,7 @@ ccn_match_profiles <- function(universe, npi_xwalk = NULL, tracker_manifest = NU
   base::list(
     profile = profile,
     city_key = normalize_city(profile$citytown),
+    zip_key = zip_key(profile$zip),
     address_n = base::lengths(street_tokens),
     house_number = dplyr::if_else(stringr::str_detect(first_tokens, "^[0-9]+$"), first_tokens, NA_character_),
     alias_profile_row = alias_profile_row,
@@ -214,6 +231,7 @@ facility_match_features <- function(facilities) {
   )
   facilities$.address_tokens <- address_tokens(facilities$address)
   facilities$.city_key <- normalize_city(facilities$city)
+  facilities$.zip_key <- zip_key(facilities$address)
 
   facilities
 }
@@ -284,6 +302,42 @@ score_ccn_candidates <- function(facility, candidate_ccns, profiles) {
   }
 
   combine_similarity(name_score, address_score, city_score)
+}
+
+#' Narrow same-state candidates to those a hard key agrees with
+#'
+#' State alone is a weak block: it leaves every hospital in Texas competing on
+#' name similarity, and the name tier already accepts scores as low as 0.6.
+#' So before scoring, candidates are cut to those sharing the facility's ZIP,
+#' or failing that its city.
+#'
+#' Two rules keep this from losing true matches:
+#' - a candidate whose key is UNKNOWN is never dropped, because a missing ZIP
+#'   cannot contradict one (tracker- and NPI-only profiles carry no ZIP);
+#' - if no candidate agrees on any key, the state-wide set is returned with
+#'   `key = "state"`, and the caller demands a higher score for it.
+#'
+#' Phone number would be a better block than either, and is not available:
+#' the CMS roster carries one, an MRF does not, so there is nothing to
+#' compare against. The same is true of any identifier absent from the file.
+#'
+#' @return list(ccns, key) where key is "zip", "city" or "state".
+block_ccn_candidates <- function(facility, candidate_ccns, profiles) {
+  rows <- base::match(candidate_ccns, profiles$profile$ccn)
+
+  agree_on <- function(facility_key, candidate_keys) {
+    if (base::is.na(facility_key) || !base::nzchar(facility_key)) return(NULL)
+    hit <- !base::is.na(candidate_keys) & candidate_keys == facility_key
+    if (base::any(hit)) candidate_ccns[hit] else NULL
+  }
+
+  by_zip <- agree_on(facility$.zip_key %||% NA_character_, profiles$zip_key[rows])
+  if (!base::is.null(by_zip)) return(base::list(ccns = by_zip, key = "zip"))
+
+  by_city <- agree_on(facility$.city_key %||% NA_character_, profiles$city_key[rows])
+  if (!base::is.null(by_city)) return(base::list(ccns = by_city, key = "city"))
+
+  base::list(ccns = candidate_ccns, key = "state")
 }
 
 facility_state_of <- function(facility) {
@@ -358,6 +412,17 @@ normalize_license_key <- function(license_number) {
   dplyr::if_else(base::is.na(key) | !base::nzchar(key), NA_character_, key)
 }
 
+#' How much more name similarity a name-only match needs
+#'
+#' Applies when the state is all that agrees and the file gives no street
+#' address, so nothing but the name is holding the match up. At the default
+#' min_score of 0.6 that match needs 0.75. The value is a judgement, not a
+#' measurement: it is the gap between "these two names look alike" and "these
+#' two names look alike and nothing else about them agrees".
+unblocked_name_penalty <- function() {
+  0.15
+}
+
 #' Add absent optional columns as NA character
 add_missing_columns <- function(tbl, columns) {
   for (column in base::setdiff(columns, base::names(tbl))) {
@@ -382,8 +447,8 @@ resolve_facility_ccn <- function(facility, url_ccns, npi_ccns, license_ccns, sta
   npi_text <- if (base::length(npi_ccns) > 0L) base::paste(base::sort(npi_ccns), collapse = ";") else NA_character_
   min_pick_score <- min_score / 2
 
-  result <- function(picked, method, conflict = FALSE) {
-    base::c(picked, base::list(method = method, conflict = conflict, npi_ccns = npi_text))
+  result <- function(picked, method, conflict = FALSE, block_key = NA_character_) {
+    base::c(picked, base::list(method = method, conflict = conflict, npi_ccns = npi_text, block_key = block_key))
   }
 
   if (base::length(url_ccns) > 0L) {
@@ -428,14 +493,26 @@ resolve_facility_ccn <- function(facility, url_ccns, npi_ccns, license_ccns, sta
     return(result(unmatched, NA_character_))
   }
 
+  blocked <- block_ccn_candidates(facility, candidates, profiles)
+  candidates <- blocked$ccns
+
   scores <- score_ccn_candidates(facility, candidates, profiles)
   ordered <- base::order(scores, decreasing = TRUE)
   top_score <- scores[[ordered[[1]]]]
   runner_up <- if (base::length(scores) > 1L) scores[[ordered[[2]]]] else 0
 
-  if (top_score >= min_score && top_score - runner_up >= min_margin) {
+  # When nothing but the state agrees AND the file carries no street address,
+  # the name alone is the whole match: demand more of it. A file with an
+  # address is not penalised, because the address is real evidence -- it is
+  # scored by containment and zeroed outright when house numbers differ, and
+  # a genuine match whose name is generic ("Denver Health Medical Center"
+  # against a roster alias) scores 0.71 on an exact street match alone.
+  name_only <- blocked$key == "state" && base::length(facility$.address_tokens) == 0L
+  floor_score <- if (name_only) min_score + unblocked_name_penalty() else min_score
+
+  if (top_score >= floor_score && top_score - runner_up >= min_margin) {
     picked <- base::list(ccn = candidates[[ordered[[1]]]], score = top_score, ambiguous = FALSE)
-    return(result(picked, "name_address"))
+    return(result(picked, "name_address", block_key = blocked$key))
   }
 
   result(unmatched, NA_character_)
@@ -458,7 +535,9 @@ resolve_facility_ccn <- function(facility, url_ccns, npi_ccns, license_ccns, sta
 #' @param min_margin Required lead of the best candidate over the runner-up.
 #' @return `facilities` with ccn, ccn_match_method ("mrf_url",
 #'   "mrf_url+npi", "npi", "license", "name_address", or NA),
-#'   ccn_match_score, ccn_ambiguous, ccn_conflict (tier-1 CCN not among the
+#'   ccn_match_score, ccn_block_key (which key narrowed the name tier's
+#'   candidates: "zip", "city" or "state"), ccn_ambiguous, ccn_conflict
+#'   (tier-1 CCN not among the
 #'   NPI-derived CCNs; the tier-1 CCN is kept), npi_ccns, and
 #'   tracker_match_method. One row per facility_key x ccn; unmatched
 #'   facilities keep one row with ccn = NA.
@@ -543,7 +622,7 @@ match_facilities_to_ccn <- function(facilities,
   license_by_row <- base::split(license_candidates$ccn, license_candidates$.row)
   state_ccns <- base::split(universe$facility_id, universe$state)
 
-  feature_cols <- base::c("state", "license_state", ".row", ".name_tokens", ".address_tokens", ".city_key")
+  feature_cols <- base::c("state", "license_state", ".row", ".name_tokens", ".address_tokens", ".city_key", ".zip_key")
   facility_rows <- purrr::transpose(base::as.list(facility_match_features(facilities)[feature_cols]))
 
   base::message("Matching ", base::length(facility_rows), " facility records to CCNs.")
@@ -574,6 +653,7 @@ match_facilities_to_ccn <- function(facilities,
     ccn_match_score = base::unlist(purrr::map(resolved, "score")),
     ccn_ambiguous = base::rep(purrr::map_lgl(resolved, "ambiguous"), n_per_row),
     ccn_conflict = base::rep(purrr::map_lgl(resolved, "conflict"), n_per_row),
+    ccn_block_key = base::rep(purrr::map_chr(resolved, function(r) r$block_key %||% NA_character_), n_per_row),
     npi_ccns = base::rep(purrr::map_chr(resolved, "npi_ccns"), n_per_row)
   )
 

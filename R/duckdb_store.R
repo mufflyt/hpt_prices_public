@@ -398,9 +398,15 @@ build_hpt_database <- function(price_globs, crosswalk_path, universe, codebook,
     ),
     # one row per hospital (CCN) a rate applies to; unmatched files count as their own unit
     base::paste0(
+      # A conflicted match (the URL's CCN is not among the NPI's) does not
+      # attribute the file to that CCN: the rates stay, as their own unit, so
+      # they still count in a state median without being credited to a
+      # hospital the evidence disputes. bridge_file_ccn keeps the row and its
+      # flag, so the conflict is auditable rather than deleted.
       "CREATE VIEW v_hospital_rate AS SELECT v.*, coalesce(b.ccn, 'file:' || v.file_id) AS unit_id, b.ccn, ",
       "coalesce(NULLIF(trim(h.state), ''), NULLIF(trim(v.file_state), ''), NULLIF(trim(v.license_state), '')) AS state, h.hospital_type, h.health_sys_name ",
-      "FROM v_rate v LEFT JOIN bridge_file_ccn b USING (file_id) LEFT JOIN dim_hospital h ON h.ccn = b.ccn;"
+      "FROM v_rate v LEFT JOIN bridge_file_ccn b ON b.file_id = v.file_id AND NOT b.ccn_conflict ",
+      "LEFT JOIN dim_hospital h ON h.ccn = b.ccn;"
     ),
 
     "DROP TABLE stg;",
