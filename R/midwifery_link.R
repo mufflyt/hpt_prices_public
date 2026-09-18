@@ -15,8 +15,10 @@
 #'   rural-urban continuum code.
 #'
 #' Inputs come read-only from the midwifery repository (MIDWIFERY_DIR,
-#' default ~/midwifery): artifacts/tracked_roster_active_primary_linked.csv
-#' (the NPI-linked active roster; the older scraped roster was withdrawn),
+#' default ~/midwifery): artifacts/amcb_npi_linkage_FROZEN.csv (the national
+#' AMCB-NPI linkage freeze, verified against its tracked manifest; it replaced
+#' tracked_roster_active_primary_linked.csv, which held only 40 states, and
+#' before that a scraped roster that was withdrawn),
 #' artifacts/cabc_accredited_birth_centers_master.csv, and
 #' artifacts/county_profiles/county_cnm_births.csv.
 
@@ -66,12 +68,72 @@ load_zcta_county <- function(path = hpt_path("reference", "census_zcta", "tab20_
     dplyr::select("zip", "county_fips")
 }
 
+#' The sha256 the midwifery repository's tracked manifest says the linkage
+#' freeze should have
+#'
+#' The manifest is in git; the freeze itself is not. Checking the file against
+#' it is the only way to tell the current freeze from an older one left in
+#' `artifacts/` under the same name, which is how a build once described
+#' 11,920 midwives instead of the registered number (midwifery
+#' docs/DATA_VAULT.md).
+midwife_freeze_manifest_sha256 <- function(path = base::file.path(midwifery_dir(), "artifacts", "amcb_npi_linkage_FROZEN.csv.manifest.json")) {
+  if (!base::file.exists(path)) return(NA_character_)
+  base::tryCatch(jsonlite::fromJSON(path)$artifact_sha256, error = function(e) NA_character_)
+}
+
 #' Active AMCB-certified midwives with their NPPES practice ZIP
-load_midwife_roster <- function(path = base::file.path(midwifery_dir(), "artifacts", "tracked_roster_active_primary_linked.csv")) {
-  readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()), show_col_types = FALSE) |>
-    dplyr::filter(.data$status == "ACTIVE", !base::is.na(.data$npi)) |>
+#'
+#' Reads the national AMCB-NPI linkage freeze and keeps the rows that match
+#' what the withdrawn 40-state roster meant by "active primary linked":
+#' in the reconciled cohort, certification ACTIVE, and an NPI whose taxonomy
+#' resolved to midwifery rather than the nursing sensitivity arm. That is
+#' 12,170 midwives across all 50 states and DC, against 11,093 over 40 states
+#' in `tracked_roster_active_primary_linked.csv`. Of the 1,127 added, 805 are
+#' in the eleven states the roster omitted, whose catchments used to be
+#' dropped from the analysis entirely; the other 272 are spread across states
+#' it already covered, so this is not a pure addition at the edges.
+#'
+#' LAPSED, RETIRED and DECEASED certificants stay out: the freeze holds every
+#' status, and 17,028 people are in the cohort, but a supply measure counts
+#' who is practising now.
+#'
+#' `verify_sha256` re-hashes the file against the tracked manifest and stops
+#' on a mismatch. Set it to FALSE only for a fixture.
+load_midwife_roster <- function(path = base::file.path(midwifery_dir(), "artifacts", "amcb_npi_linkage_FROZEN.csv"),
+                                verify_sha256 = TRUE) {
+  if (verify_sha256) {
+    expected <- midwife_freeze_manifest_sha256()
+    if (!base::is.na(expected)) {
+      actual <- sha256_file(path)
+      if (!base::identical(actual, expected)) {
+        base::stop("The linkage freeze at ", path, " is not the one the tracked manifest describes.\n",
+                   "  manifest: ", expected, "\n  file:     ", actual, "\n",
+                   "Regenerate it in the midwifery repository, or pass verify_sha256 = FALSE for a fixture.")
+      }
+    }
+  }
+  roster <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()),
+                            show_col_types = FALSE, guess_max = Inf) |>
+    dplyr::filter(
+      base::toupper(.data$cohort_member) == "TRUE",
+      .data$status == "ACTIVE",
+      .data$npi_tax_class == "midwife",
+      !base::is.na(.data$npi)
+    ) |>
     dplyr::transmute(.data$npi, zip = stringr::str_sub(.data$nppes_zip, 1, 5), state = .data$nppes_state, .data$certification) |>
-    dplyr::distinct(.data$npi, .keep_all = TRUE)
+    dplyr::distinct(.data$npi, .keep_all = TRUE) |>
+    # Foreign practice addresses otherwise slip through: a Rhineland-Palatinate
+    # postal code matches a US ZCTA by coincidence and places that midwife in
+    # the United States. Military APO/FPO codes (AE, AP) have no ZCTA and drop
+    # out on the join anyway, but are excluded here so the count is honest.
+    dplyr::filter(.data$state %in% us_postal_codes())
+  if (base::nrow(roster) == 0L) base::stop("No active midwives read from ", path, "; check the freeze's columns.")
+  roster
+}
+
+#' The 50 states, DC, and the five inhabited territories
+us_postal_codes <- function() {
+  base::c(datasets::state.abb, "DC", "PR", "VI", "GU", "MP", "AS")
 }
 
 #' CABC-accredited birth centers, with the ZIP read from the end of the full

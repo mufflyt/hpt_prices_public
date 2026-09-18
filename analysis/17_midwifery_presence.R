@@ -16,8 +16,10 @@
 #' from the wild cluster restricted bootstrap clustered by state
 #' (wild_cluster_bootstrap() in R/ownership.R). Associations, not effects:
 #' where midwives practice is not random.
-#' The midwife roster covers 40 states; hospitals whose catchment reaches an
-#' uncovered state have no exposure (roster_uncovered_zctas()).
+#' The national AMCB-NPI linkage freeze covers all 50 states and DC, so no
+#' hospital is dropped for reaching an uncovered state any more. The check
+#' that used to drop them (roster_uncovered_zctas()) is still run, and must
+#' come back empty.
 #'
 #' County NTSV cesarean rates against midwife supply are in
 #' analysis/18_ntsv_midwife_supply.R.
@@ -47,13 +49,15 @@ download_zcta_files()
 zcta <- load_zcta_centroids()
 zcta_county <- load_zcta_county()
 roster <- load_midwife_roster()
+national_roster_coverage(roster, strict = TRUE)
+base::message("Midwife roster: ", base::nrow(roster), " active midwives, all 50 states and DC")
 presence <- hospital_midwifery_presence(
   dplyr::filter(hospitals, .data$ccn %in% base::union(ratios$ccn, premium$ccn)) |> dplyr::select("ccn", "zip"),
   zcta, zcta_county, roster, load_birth_centers(), load_county_midwifery(),
   radius = radius, uncovered = roster_uncovered_zctas(zcta, zcta_county, roster)
 )
 base::message("Midwifery presence for ", base::nrow(presence), " delivery hospitals (radius ", radius, " miles); ",
-              base::sum(!presence$roster_covered), " excluded because the catchment reaches a state the roster does not cover")
+              base::sum(!presence$roster_covered), " with a catchment reaching a state the roster does not cover (expected 0)")
 
 covariates <- hospitals |>
   dplyr::left_join(beds, by = "ccn") |>
@@ -160,8 +164,7 @@ fig <- ggplot2::ggplot(plot_data, ggplot2::aes(x = .data$cnm_tertile, y = .data$
     x = "Midwifery presence tertile", y = NULL,
     caption = base::paste0(
       "Prices: Trilliant Health Hospital MRF Data Directory (snapshot 2026-07-21). Midwives: AMCB-certified, NPPES practice ZIP. Births: NVSS (AHRF).\n",
-      "The midwife roster covers 40 states; ", base::sum(!presence$roster_covered, na.rm = TRUE),
-      " hospitals whose ", radius, "-mile area reaches AK, DC, DE, HI, ND, NJ, RI, SD, VT, WV, or WY are left out."
+      "Midwives: the national AMCB-NPI linkage freeze, all 50 states and DC, so no hospital is left out for reaching an uncovered state."
     )
   ) +
   ggplot2::theme_minimal(base_size = 11) +
