@@ -36,6 +36,8 @@ radius <- base::as.numeric(base::Sys.getenv("HPT_MIDWIFE_RADIUS_MILES", unset = 
 sensitivity_radii <- base::c(15, 60)
 B <- base::as.integer(base::Sys.getenv("HPT_WCR_DRAWS", unset = "9999"))
 out_dir <- hpt_path("output")
+fig_dir <- hpt_path("output", "figures")
+base::dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 db_path <- hpt_database_path()
 
 # ---- WONDER exports ---------------------------------------------------------------
