@@ -419,3 +419,61 @@ testthat::test_that("NPI lists and licence keys are read the way the sources wri
   testthat::expect_true(base::is.na(normalize_license_key("")))
   testthat::expect_true(base::is.na(normalize_license_key(NA_character_)))
 })
+
+# ---- blocking before name scoring ---------------------------------------------------
+
+testthat::test_that("ZIPs are read from a roster column or the tail of an address", {
+  testthat::expect_equal(zip_key(base::c("80204", "80204-1234")), base::c("80204", "80204"))
+  testthat::expect_equal(zip_key("777 Bannock St, Denver, CO 80204"), "80204")
+  testthat::expect_equal(zip_key("1 Main St, Town, CO 80204-1234"), "80204")
+  # a five-digit run that is not at the end is a street number, not a ZIP
+  testthat::expect_true(base::is.na(zip_key("12345 Sunset Boulevard, Los Angeles, CA")))
+  testthat::expect_true(base::is.na(zip_key(base::c("no zip", NA))[[1]]))
+})
+
+testthat::test_that("candidates narrow to the ZIP, then the city, then the state", {
+  profiles <- base::list(
+    profile = tibble::tibble(ccn = base::c("A", "B", "C", "D")),
+    zip_key = base::c("80204", "80218", NA, "80204"),
+    city_key = base::c("DENVER", "DENVER", "PUEBLO", "AURORA")
+  )
+  all_ccns <- base::c("A", "B", "C", "D")
+
+  # a shared ZIP wins, and a candidate with no ZIP is not dropped by it
+  zip_hit <- block_ccn_candidates(base::list(.zip_key = "80204", .city_key = "DENVER"), all_ccns, profiles)
+  testthat::expect_equal(zip_hit$key, "zip")
+  testthat::expect_setequal(zip_hit$ccns, base::c("A", "D"))
+
+  # no ZIP agrees: fall back to the city
+  city_hit <- block_ccn_candidates(base::list(.zip_key = "99999", .city_key = "DENVER"), all_ccns, profiles)
+  testthat::expect_equal(city_hit$key, "city")
+  testthat::expect_setequal(city_hit$ccns, base::c("A", "B"))
+
+  # nothing agrees, or the facility has neither key: the state set stands
+  none <- block_ccn_candidates(base::list(.zip_key = "99999", .city_key = "NOWHERE"), all_ccns, profiles)
+  testthat::expect_equal(none$key, "state")
+  testthat::expect_setequal(none$ccns, all_ccns)
+  testthat::expect_equal(block_ccn_candidates(base::list(), all_ccns, profiles)$key, "state")
+})
+
+testthat::test_that("a name-only match needs a higher score than one with an address or a ZIP", {
+  inputs <- crosswalk_inputs()
+  run <- function(f) base::suppressMessages(match_facilities_to_ccn(f, tracker_manifest = NULL, npi_xwalk = NULL, universe = inputs$universe))
+
+  # exact street address, no city or ZIP in the file: the address carries it,
+  # so the 0.71 score stands
+  with_address <- run(facility_record("a", hospital_name = "Denver Health Medical Center",
+                                      address = "777 Bannock St", state = "CO"))
+  testthat::expect_equal(with_address$ccn, "060011")
+  testthat::expect_equal(with_address$ccn_block_key, "state")
+
+  # the same name with no address at all is name-only evidence and is refused
+  name_only <- run(facility_record("b", hospital_name = "Denver Health Medical Center", state = "CO"))
+  testthat::expect_true(base::is.na(name_only$ccn))
+
+  # a ZIP in the address narrows the field and is recorded
+  with_zip <- run(facility_record("c", hospital_name = "Denver Health Medical Center",
+                                  address = "777 Bannock St, Denver, CO 80204", city = "Denver", state = "CO"))
+  testthat::expect_equal(with_zip$ccn, "060011")
+  testthat::expect_equal(with_zip$ccn_block_key, "zip")
+})

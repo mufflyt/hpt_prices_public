@@ -248,3 +248,49 @@ testthat::test_that("per-diem MS-DRG rates become stay prices; other rows keep t
   # Alpha (f1): 18,000
   testthat::expect_equal(co$median_price, stats::median(base::c(16000, 18000)))
 })
+
+testthat::test_that("a conflicted match keeps its rates but is not credited to the hospital", {
+  dir <- base::tempfile("conflict_db")
+  base::dir.create(dir)
+  prices <- conform_price_table(tibble::tibble(
+    source = "trilliant", mrf_url = base::c("https://a.org/1.csv", "https://b.org/2.csv"),
+    mrf_file_id = base::c("f1", "f2"), hospital_name = base::c("Alpha", "Beta"), license_state = "CO",
+    concept = "colonoscopy", code = "45378", code_system = "CPT", type_verified = TRUE,
+    setting = "outpatient", billing_class = NA_character_, payer_name = "Aetna", plan_name = "PPO",
+    negotiated_dollar = base::c(900, 800), gross = 3000, discounted_cash = 1200, methodology = "fee schedule"
+  ))
+  prices_path <- base::file.path(dir, "prices.parquet")
+  arrow::write_parquet(prices, prices_path)
+
+  # f1's URL points at 060011 while its NPI says otherwise: conflicted
+  arrow::write_parquet(
+    tibble::tibble(mrf_file_id = base::c("f1", "f2"), ccn = base::c("060011", "060024"),
+                   ccn_match_method = "mrf_url", ccn_match_score = 1,
+                   ccn_conflict = base::c(TRUE, FALSE), ccn_ambiguous = FALSE, state = "CO"),
+    base::file.path(dir, "crosswalk.parquet")
+  )
+  universe <- tibble::tibble(
+    facility_id = base::c("060011", "060024"), facility_name = base::c("Alpha", "Beta"), address = "x",
+    citytown = "Denver", state = "CO", zip_code = "80204", hospital_type = "Acute Care Hospitals",
+    hospital_ownership = "Voluntary non-profit - Private", hos_beds = "100", health_sys_id = NA_character_,
+    health_sys_name = NA_character_
+  )
+  db <- base::file.path(dir, "hpt.duckdb")
+  base::suppressMessages(build_hpt_database(
+    price_globs = prices_path, crosswalk_path = base::file.path(dir, "crosswalk.parquet"),
+    universe = universe, db_path = db, codebook = test_codebook()
+  ))
+
+  bridge <- duckdb_query("SELECT file_id, ccn, ccn_conflict FROM bridge_file_ccn ORDER BY ccn", database = db, read_only = TRUE)
+  # the bridge keeps the conflicted row, flagged, so it stays auditable
+  testthat::expect_equal(base::nrow(bridge), 2)
+  testthat::expect_true(base::any(bridge$ccn_conflict))
+
+  units <- duckdb_query("SELECT unit_id, ccn, negotiated_dollar FROM v_hospital_rate ORDER BY negotiated_dollar", database = db, read_only = TRUE)
+  # the clean file is credited to its hospital; the conflicted one counts as
+  # its own unit, so its rate survives without being attached to a CCN the
+  # evidence disputes
+  testthat::expect_equal(units$ccn, base::c("060024", NA))
+  testthat::expect_true(stringr::str_starts(units$unit_id[base::is.na(units$ccn)], "file:"))
+  testthat::expect_setequal(units$negotiated_dollar, base::c(800, 900))
+})
