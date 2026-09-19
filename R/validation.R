@@ -1372,6 +1372,86 @@ check_headline_suppression <- function(medians, min_hospitals = 3L, headline_fn 
 #' @param rules Payer-type rules to evaluate (current config by default).
 #' @return Tibble of checks (check_id, category, description, status,
 #'   metric, threshold, detail).
+#' Are the CDC WONDER exports present and consistent with the specification?
+#'
+#' A skip when they are not downloaded yet, which is the normal state until
+#' someone runs the ten manual exports. A fail when a file is present but
+#' wrong, because a mis-built export is worse than a missing one: it produces
+#' a believable answer to a different question.
+check_wonder_exports <- function(dir = wonder_export_dir()) {
+  description <- "the CDC WONDER exports match the grouping, years and NTSV filters the spec requires"
+  if (!base::dir.exists(dir)) {
+    return(validation_row("ntsv_wonder_exports", "ntsv", description, "skip",
+                          detail = "no reference/cdc_wonder folder; the exports are downloaded by hand"))
+  }
+  audit <- wonder_export_audit(dir)
+  present <- dplyr::filter(audit, .data$present)
+  if (base::nrow(present) == 0L) {
+    return(validation_row("ntsv_wonder_exports", "ntsv", description, "skip",
+                          detail = "no exports downloaded yet"))
+  }
+  bad <- dplyr::filter(present, !base::is.na(.data$problem))
+  missing_required <- dplyr::filter(audit, .data$role == "required", !.data$present)
+  if (base::nrow(bad)) {
+    return(validation_row("ntsv_wonder_exports", "ntsv", description, "fail",
+                          metric = base::nrow(bad), threshold = "0 inconsistent exports",
+                          detail = base::paste0(base::nrow(bad), " inconsistent: ",
+                                                base::paste(bad$file, collapse = ", "))))
+  }
+  if (base::nrow(missing_required)) {
+    return(validation_row("ntsv_wonder_exports", "ntsv", description, "warn",
+                          metric = base::nrow(missing_required), threshold = "all required exports present",
+                          detail = base::paste0("present ones are consistent; still missing ",
+                                                base::paste(missing_required$file, collapse = ", "))))
+  }
+  validation_row("ntsv_wonder_exports", "ntsv", description, "pass",
+                 metric = base::nrow(present), detail = "all exports present and consistent")
+}
+
+#' Did the NTSV result survive its own falsification tests?
+#'
+#' The placebo refits the primary model on 2016-2019 births, which today's
+#' midwife supply cannot have affected, and the negative control refits it on
+#' the multiple-birth share, which midwifery cannot plausibly move. A
+#' significant estimate in either is evidence that the headline association is
+#' confounding by stable county characteristics rather than midwifery.
+#'
+#' This fails loudly on purpose. The temptation with a falsification test is to
+#' explain it away after the fact, so the report states the verdict where it
+#' sits beside every other check rather than in a paragraph someone writes
+#' later.
+check_ntsv_falsification <- function(out_dir = hpt_path("output"), alpha = 0.05) {
+  description <- "the NTSV placebo and negative-control models are null, as a real effect requires"
+  path <- base::file.path(out_dir, "ntsv_models.csv")
+  if (!base::file.exists(path)) {
+    return(validation_row("ntsv_falsification", "ntsv", description, "skip",
+                          detail = "analysis/18 has not run; it needs the CDC WONDER exports"))
+  }
+  models <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()), show_col_types = FALSE)
+  if (!base::all(base::c("model", "p_value") %in% base::names(models))) {
+    return(validation_row("ntsv_falsification", "ntsv", description, "skip", detail = "ntsv_models.csv has no p_value column"))
+  }
+  falsification <- models |>
+    dplyr::filter(stringr::str_detect(.data$model, "^placebo|^negative control")) |>
+    dplyr::mutate(p_value = base::as.numeric(.data$p_value))
+  if (base::nrow(falsification) == 0L) {
+    return(validation_row("ntsv_falsification", "ntsv", description, "skip",
+                          detail = "no placebo or negative-control rows in ntsv_models.csv"))
+  }
+  hit <- dplyr::filter(falsification, !base::is.na(.data$p_value), .data$p_value < alpha)
+  if (base::nrow(hit)) {
+    return(validation_row("ntsv_falsification", "ntsv", description, "fail",
+                          metric = base::min(hit$p_value), threshold = base::paste0("p >= ", alpha),
+                          detail = base::paste0("a falsification model is significant, so the headline association is not ",
+                                                "attributable to midwifery: ",
+                                                base::paste(base::sprintf("%s (p = %.3g)", hit$model, hit$p_value), collapse = "; "))))
+  }
+  validation_row("ntsv_falsification", "ntsv", description, "pass",
+                 metric = base::min(falsification$p_value, na.rm = TRUE), threshold = base::paste0("p >= ", alpha),
+                 detail = base::paste0(base::nrow(falsification), " falsification model(s), smallest p = ",
+                                       base::signif(base::min(falsification$p_value, na.rm = TRUE), 3)))
+}
+
 run_validation <- function(db_path = hpt_database_path(), out_dir = hpt_path("output"), network = FALSE,
                            opps_path = NULL, answers = known_answers(), rules = load_payer_type_rules(),
                            state = read_gap_extract_state(), codebook = NULL) {
@@ -1431,7 +1511,9 @@ run_validation <- function(db_path = hpt_database_path(), out_dir = hpt_path("ou
     base::list("coverage_states", "coverage", function() check_thin_states(needs(medians, "state medians"))),
     base::list("coverage_headline_suppression", "coverage", function() check_headline_suppression(needs(medians, "state medians"))),
     base::list("integrity_median_recomputation", "integrity",
-               function() check_median_recomputation(db_path, needs(medians, "state medians"), excluded))
+               function() check_median_recomputation(db_path, needs(medians, "state medians"), excluded)),
+    base::list("ntsv_wonder_exports", "ntsv", function() check_wonder_exports()),
+    base::list("ntsv_falsification", "ntsv", function() check_ntsv_falsification(out_dir))
   )
 
   report <- dplyr::bind_rows(base::lapply(checks, function(check) {

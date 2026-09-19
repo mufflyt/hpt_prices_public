@@ -57,6 +57,7 @@ source_files <- c(
   "birth_prices.R",
   "midwifery_link.R",
   "ntsv_county.R",
+  "wonder_preflight.R",
   "summaries.R",
   "pipeline.R"
 )

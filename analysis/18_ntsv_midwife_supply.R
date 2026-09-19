@@ -44,62 +44,52 @@ db_path <- hpt_database_path()
 
 exports <- wonder_ntsv_exports() |>
   dplyr::mutate(path = base::file.path(wonder_export_dir(), .data$file), present = base::file.exists(.data$path))
-missing_required <- dplyr::filter(exports, .data$role == "required", !.data$present)
-if (base::nrow(missing_required)) {
-  base::message("Missing CDC WONDER exports (Natality, 2016-2024 expanded; tab-delimited; show totals, zero and suppressed values).")
-  base::message("Dataset D149 (Natality, 2016-2024 expanded). Export format: XLS, which is tab-delimited text.")
-  base::message("NTSV filters, using the request form's own option labels:")
-  base::message("  Live Birth Order = 1; Plurality = Single; Fetal Presentation = Cephalic;")
-  base::message("  OE Gestational Age Recode 11 = 37-38 weeks, 39 weeks, 40 weeks, 41 weeks, 42 weeks or more.")
-  for (i in base::seq_len(base::nrow(missing_required))) {
-    r <- missing_required[i, ]
-    base::message(base::sprintf("- %s\n    Group by: %s | Years: %s | NTSV filters: %s", r$path, r$group_by, r$years,
-                                if (r$ntsv_filters) "yes" else "no"))
+
+# Audit every export against the specification before anything reads one.
+# The files are built by hand in a web form, and a wrong one does not look
+# wrong: the wrong grouping variable, or the placebo left on 2022-2024,
+# yields a well-formed file with believable counts. wonder_export_audit()
+# checks grouping, years, the NTSV restrictions and the geography count from
+# each file's own Notes block, and reports every problem at once rather than
+# stopping at the first. tools/check_wonder_exports.R runs exactly this, in
+# seconds, and is the thing to run when the files land.
+audit <- wonder_export_audit()
+base::message("CDC WONDER exports:")
+audit_ok <- wonder_audit_report(audit)
+write_csv_atomic(audit, base::file.path(out_dir, "ntsv_wonder_audit.csv"))
+
+if (!audit_ok) {
+  missing_required <- dplyr::filter(exports, .data$role == "required", !.data$present)
+  if (base::nrow(missing_required)) {
+    base::message("")
+    base::message("Dataset D149 (Natality, 2016-2024 expanded). On the Results tab choose Export,")
+    base::message("then the XLS format, which despite its name is the tab-delimited text this reads.")
+    base::message("NTSV filters, using the request form's own option labels:")
+    base::message("  Live Birth Order = 1; Plurality = Single; Fetal Presentation = Cephalic;")
+    base::message("  OE Gestational Age Recode 11 = 37-38 weeks, 39 weeks, 40 weeks, 41 weeks, 42 weeks or more.")
+    for (i in base::seq_len(base::nrow(missing_required))) {
+      r <- missing_required[i, ]
+      base::message(base::sprintf("- %s\n    Group by: %s | Years: %s | NTSV filters: %s", r$path, r$group_by, r$years,
+                                  if (r$ntsv_filters) "yes" else "no"))
+    }
   }
-  base::stop(base::nrow(missing_required), " required WONDER export(s) missing; see docs/childbirth_analytic_spec.md")
+  if (!base::identical(base::Sys.getenv("HPT_WONDER_SKIP_FILTER_CHECK"), "true")) {
+    base::stop("The WONDER exports do not match the specification; see the report above. ",
+               "Re-export them, or set HPT_WONDER_SKIP_FILTER_CHECK=true after checking the Notes by hand.")
+  }
+  base::message("HPT_WONDER_SKIP_FILTER_CHECK=true: continuing despite the problems above.")
 }
+
 present <- dplyr::filter(exports, .data$present)
 skipped <- dplyr::filter(exports, !.data$present)
 if (base::nrow(skipped)) base::message("Optional WONDER exports not found (skipped): ", base::paste(skipped$file, collapse = ", "))
 
-#' The Notes block of an export, for provenance and filter checks
-wonder_notes <- function(path) {
-  lines <- base::readLines(path, warn = FALSE)
-  at <- base::which(stringr::str_detect(lines, '^"?---'))[1]
-  if (base::is.na(at)) return(base::character())
-  stringr::str_remove_all(lines[at:base::length(lines)], '"')
-}
-#' What the Notes block of a correctly filtered export actually says
-#'
-#' These are the strings CDC WONDER writes, verified against a live export of
-#' the county outcome on 2026-09-19, not the option labels on the request
-#' form. The two differ: the form offers Live Birth Order "1", and the Notes
-#' record it as `Live Birth Order: 1`, where this check previously looked for
-#' "1st child born alive to mother" and so would have rejected every correct
-#' export. The gestational-age line lists all five term categories, and all
-#' five are required: matching only "37-38 weeks" would pass an export
-#' restricted to early-term births.
-filter_marks <- base::c(
-  "^Live Birth Order: 1$",
-  "^Plurality: Single$",
-  "^Fetal Presentation: Cephalic$",
-  "^OE Gestational Age Recode 11:(?=.*37-38 weeks)(?=.*39 weeks)(?=.*40 weeks)(?=.*41 weeks)(?=.*42 weeks or more)"
-)
-provenance <- dplyr::bind_rows(base::lapply(base::seq_len(base::nrow(present)), function(i) {
-  r <- present[i, ]
-  notes <- wonder_notes(r$path)
-  has <- base::vapply(filter_marks, function(m) base::any(stringr::str_detect(notes, m)), base::logical(1))
-  tibble::tibble(key = r$key, file = r$file, sha256 = sha256_file(r$path),
-                 dataset = stringr::str_squish(stringr::str_remove(base::grep("^Dataset:", notes, value = TRUE)[1], "^Dataset:")),
-                 query_date = stringr::str_squish(stringr::str_remove(base::grep("^Query Date:", notes, value = TRUE)[1], "^Query Date:")),
-                 ntsv_filters_expected = r$ntsv_filters, ntsv_filters_in_notes = base::all(has))
-}))
+provenance <- audit |>
+  dplyr::filter(.data$present) |>
+  dplyr::transmute(.data$key, .data$file, .data$sha256, .data$dataset, .data$query_date,
+                   .data$rows, .data$n_geo, consistent_with_spec = base::is.na(.data$problem))
 write_csv_atomic(provenance, base::file.path(out_dir, "ntsv_wonder_provenance.csv"))
-wrong <- dplyr::filter(provenance, .data$ntsv_filters_expected != .data$ntsv_filters_in_notes)
-if (base::nrow(wrong) && !base::identical(base::Sys.getenv("HPT_WONDER_SKIP_FILTER_CHECK"), "true")) {
-  base::stop("NTSV filters in the export Notes do not match the specification for: ", base::paste(wrong$file, collapse = ", "),
-             ". Re-export, or set HPT_WONDER_SKIP_FILTER_CHECK=true after checking the Notes by hand.")
-}
+
 ex <- stats::setNames(base::lapply(present$path, read_wonder_export), present$key)
 
 # ---- outcome and composition ---------------------------------------------------------

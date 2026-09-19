@@ -709,7 +709,7 @@ testthat::test_that("run_validation writes the CSV and markdown report", {
   testthat::expect_false(base::any(base::duplicated(report$check_id)))
   testthat::expect_setequal(
     base::unique(report$category),
-    base::c("integrity", "known_answer", "plausibility", "payer_type", "cross_source", "benchmark", "raw_recheck", "coverage")
+    base::c("integrity", "known_answer", "plausibility", "payer_type", "cross_source", "benchmark", "raw_recheck", "coverage", "ntsv")
   )
   testthat::expect_false(base::any(report$status == "fail"))
 
