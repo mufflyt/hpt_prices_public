@@ -56,8 +56,11 @@ base::set.seed(20260914)
 wonder_dir <- wonder_export_dir()
 notes <- function(ntsv) {
   base::c('"---"', '"Dataset: Natality, 2016-2024 expanded"', '"Query Parameters:"',
-          if (ntsv) base::c('"Live Birth Order: 1st child born alive to mother"', '"Plurality: Single"', '"Fetal Presentation: Cephalic"',
-                            '"OE Gestational Age Recode 11: 37-38 weeks; 39 weeks; 40 weeks; 41 weeks; 42 or more weeks"'),
+          # exactly as CDC WONDER writes them, verified against a live D149
+          # export on 2026-09-19; the request form's option label for birth
+          # order is "1", and the Notes record it that way
+          if (ntsv) base::c('"Live Birth Order: 1"', '"Plurality: Single"', '"Fetal Presentation: Cephalic"',
+                            '"OE Gestational Age Recode 11: 37-38 weeks; 39 weeks; 40 weeks; 41 weeks; 42 weeks or more"'),
           '"Query Date: synthetic smoke test"', '"---"')
 }
 #' One export: `categories` is a list of category vectors (one per grouping
