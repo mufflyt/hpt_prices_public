@@ -11,8 +11,9 @@
 #
 # ORDER MATTERS. 09 rebuilds the database from the extract and the crosswalk;
 # 10 validates it; 11 recomputes the medians every later stage reads; 12 and 14
-# depend on 11; 13, 15, 16 read the database; 17 reads 16's outputs. 18 is
-# skipped: it needs the CDC WONDER exports (docs/childbirth_analytic_spec.md).
+# depend on 11; 13, 15, 16 read the database; 17 reads 16's outputs. 18 reads
+# 16's outputs too, and additionally needs the CDC WONDER exports, so it runs
+# only when they are present and pass the audit (see below).
 #
 # Usage, from the repository root:
 #   tools/post_extract_refresh.sh [before_dir]
@@ -81,10 +82,38 @@ if [ -z "${HPT_SKIP_APR:-}" ]; then
   fi
 fi
 
+# Stage 18 needs the ten CDC WONDER exports, which are downloaded by hand.
+# The preflight reads each file's own Notes block and checks the grouping,
+# years and NTSV restrictions against the specification; it takes seconds, and
+# it is what stops a mis-built export from reaching a twenty-minute model fit.
+# Absent exports are not a failure of the refresh, they are simply not here yet.
+if [ -z "${HPT_SKIP_NTSV:-}" ]; then
+  echo "CDC WONDER exports (stage 18):"
+  if Rscript tools/check_wonder_exports.R > "$log_dir/18_preflight.log" 2>&1; then
+    sed 's/^/  /' "$log_dir/18_preflight.log"
+    started=$(date +%s)
+    if Rscript analysis/18_ntsv_midwife_supply.R > "$log_dir/18_ntsv_midwife_supply.log" 2>&1; then
+      printf '  ok    %-24s %4ss\n' "18_ntsv_midwife_supply" "$(( $(date +%s) - started ))"
+    else
+      printf '  FAIL  %-24s %4ss  (see %s)\n' "18_ntsv_midwife_supply" "$(( $(date +%s) - started ))" "$log_dir/18_ntsv_midwife_supply.log"
+      failed+=("18_ntsv_midwife_supply")
+    fi
+  else
+    sed 's/^/  /' "$log_dir/18_preflight.log"
+    echo "  skipped: the WONDER exports are not ready (this is not a refresh failure)"
+  fi
+fi
+
 if [ -n "$before_dir" ] && [ -d "$before_dir" ]; then
   echo
   echo "Impact against $before_dir:"
   Rscript tools/refresh_impact.R "$before_dir" | tee "$log_dir/impact.md"
 fi
 
+if [ ${#failed[@]} -gt 0 ]; then
+  echo
+  echo "FAILED STAGES: ${failed[*]}"
+  echo "Done with failures. Logs in $log_dir"
+  exit 1
+fi
 echo "Done. Logs in $log_dir"
