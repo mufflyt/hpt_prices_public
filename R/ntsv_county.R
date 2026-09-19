@@ -21,12 +21,18 @@
 
 #' Every WONDER export the analysis reads
 #'
-#' All come from "Natality, 2016-2024 expanded" (web UI), exported
-#' tab-delimited with totals, zero values, and suppressed values shown. "NTSV
-#' filters" means Live Birth Order = "1st child born alive to mother",
-#' Plurality = "Single", OE Gestational Age Recode 11 = "37-38 weeks",
-#' "39 weeks", "40 weeks", "41 weeks", "42 or more weeks", and Fetal
-#' Presentation = "Cephalic" (labels as in the WONDER natality help page).
+#' All come from "Natality, 2016-2024 expanded" (dataset D149, web UI),
+#' exported with totals, zero values, and suppressed values shown. On the
+#' results page choose Export, then the XLS format, which despite its name is
+#' the tab-delimited text this reader expects; TSV and CSV omit the Notes
+#' block the filter check reads.
+#'
+#' "NTSV filters" means Live Birth Order = "1", Plurality = "Single", OE
+#' Gestational Age Recode 11 = "37-38 weeks", "39 weeks", "40 weeks",
+#' "41 weeks", "42 weeks or more", and Fetal Presentation = "Cephalic".
+#' These are the request form's own option labels, verified against a live
+#' export on 2026-09-19. The natality help page's wording differs from them,
+#' and an earlier version of this file took the labels from there.
 #' `role`: "required" exports must exist for the primary model; the others
 #' feed extended models and checks and are skipped with a message when absent.
 wonder_ntsv_exports <- function() {

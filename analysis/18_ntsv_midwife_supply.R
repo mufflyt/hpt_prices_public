@@ -47,8 +47,10 @@ exports <- wonder_ntsv_exports() |>
 missing_required <- dplyr::filter(exports, .data$role == "required", !.data$present)
 if (base::nrow(missing_required)) {
   base::message("Missing CDC WONDER exports (Natality, 2016-2024 expanded; tab-delimited; show totals, zero and suppressed values).")
-  base::message("NTSV filters: Live Birth Order = 1st child born alive to mother; Plurality = Single;")
-  base::message("  OE Gestational Age Recode 11 = 37-38, 39, 40, 41, 42 or more weeks; Fetal Presentation = Cephalic.")
+  base::message("Dataset D149 (Natality, 2016-2024 expanded). Export format: XLS, which is tab-delimited text.")
+  base::message("NTSV filters, using the request form's own option labels:")
+  base::message("  Live Birth Order = 1; Plurality = Single; Fetal Presentation = Cephalic;")
+  base::message("  OE Gestational Age Recode 11 = 37-38 weeks, 39 weeks, 40 weeks, 41 weeks, 42 weeks or more.")
   for (i in base::seq_len(base::nrow(missing_required))) {
     r <- missing_required[i, ]
     base::message(base::sprintf("- %s\n    Group by: %s | Years: %s | NTSV filters: %s", r$path, r$group_by, r$years,
@@ -67,11 +69,26 @@ wonder_notes <- function(path) {
   if (base::is.na(at)) return(base::character())
   stringr::str_remove_all(lines[at:base::length(lines)], '"')
 }
-filter_marks <- base::c("1st child born alive", "Single", "Cephalic", "37-38 weeks")
+#' What the Notes block of a correctly filtered export actually says
+#'
+#' These are the strings CDC WONDER writes, verified against a live export of
+#' the county outcome on 2026-09-19, not the option labels on the request
+#' form. The two differ: the form offers Live Birth Order "1", and the Notes
+#' record it as `Live Birth Order: 1`, where this check previously looked for
+#' "1st child born alive to mother" and so would have rejected every correct
+#' export. The gestational-age line lists all five term categories, and all
+#' five are required: matching only "37-38 weeks" would pass an export
+#' restricted to early-term births.
+filter_marks <- base::c(
+  "^Live Birth Order: 1$",
+  "^Plurality: Single$",
+  "^Fetal Presentation: Cephalic$",
+  "^OE Gestational Age Recode 11:(?=.*37-38 weeks)(?=.*39 weeks)(?=.*40 weeks)(?=.*41 weeks)(?=.*42 weeks or more)"
+)
 provenance <- dplyr::bind_rows(base::lapply(base::seq_len(base::nrow(present)), function(i) {
   r <- present[i, ]
   notes <- wonder_notes(r$path)
-  has <- base::vapply(filter_marks, function(m) base::any(stringr::str_detect(notes, stringr::fixed(m))), base::logical(1))
+  has <- base::vapply(filter_marks, function(m) base::any(stringr::str_detect(notes, m)), base::logical(1))
   tibble::tibble(key = r$key, file = r$file, sha256 = sha256_file(r$path),
                  dataset = stringr::str_squish(stringr::str_remove(base::grep("^Dataset:", notes, value = TRUE)[1], "^Dataset:")),
                  query_date = stringr::str_squish(stringr::str_remove(base::grep("^Query Date:", notes, value = TRUE)[1], "^Query Date:")),
