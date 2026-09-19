@@ -21,11 +21,16 @@
 
 #' Every WONDER export the analysis reads
 #'
-#' All come from "Natality, 2016-2024 expanded" (dataset D149, web UI),
-#' exported with totals, zero values, and suppressed values shown. On the
-#' results page choose Export, then the XLS format, which despite its name is
-#' the tab-delimited text this reader expects; TSV and CSV omit the Notes
-#' block the filter check reads.
+#' All come from "Natality, 2016-2024 expanded" (dataset D149), exported with
+#' zero values and suppressed values shown. Suppressed rows matter: CDC hides
+#' any cell of 1 to 9 births, and with those rows omitted a county whose
+#' cesarean count is suppressed silently reads as if it had none.
+#'
+#' Either the XLS or the TSV export format produces the tab-delimited text
+#' with the trailing Notes block that this reader and the preflight need; both
+#' are verified against delivered exports, and XLS is tab-delimited text
+#' despite its name. An earlier version of this comment claimed TSV omits the
+#' Notes block, which is wrong and was never tested.
 #'
 #' "NTSV filters" means Live Birth Order = "1", Plurality = "Single", OE
 #' Gestational Age Recode 11 = "37-38 weeks", "39 weeks", "40 weeks",

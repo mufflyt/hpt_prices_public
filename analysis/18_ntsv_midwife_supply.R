@@ -63,7 +63,7 @@ if (!audit_ok) {
   if (base::nrow(missing_required)) {
     base::message("")
     base::message("Dataset D149 (Natality, 2016-2024 expanded). On the Results tab choose Export,")
-    base::message("then the XLS format, which despite its name is the tab-delimited text this reads.")
+    base::message("then either the XLS or TSV format; both give the tab-delimited text with the Notes block.")
     base::message("NTSV filters, using the request form's own option labels:")
     base::message("  Live Birth Order = 1; Plurality = Single; Fetal Presentation = Cephalic;")
     base::message("  OE Gestational Age Recode 11 = 37-38 weeks, 39 weeks, 40 weeks, 41 weeks, 42 weeks or more.")
